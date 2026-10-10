@@ -1,0 +1,236 @@
+/* Color tokens. Series colors are a validated categorical palette; dark mode
+   uses its own steps, not an automatic inversion. */
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.10);
+
+  --series-1: #2a78d6; /* blue */
+  --series-2: #eb6834; /* orange */
+  --series-3: #1baf7a; /* aqua */
+  --series-4: #eda100; /* yellow */
+  --series-5: #e87ba4; /* magenta */
+  --series-6: #008300; /* green */
+  --series-7: #4a3aa7; /* violet */
+  --series-8: #e34948; /* red */
+  --series-other: #898781;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.10);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+}
+
+/* ---------- Page ---------- */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text-primary);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+h1 { margin: 0 0 4px; font-size: 1.6rem; }
+.subtitle { margin: 0 0 24px; color: var(--text-secondary); }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+/* ---------- Chart chrome ---------- */
+.scatter-title { margin: 0 0 8px; font-size: 1.1rem; }
+.scatter-empty { color: var(--text-secondary); }
+
+.scatter-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-bottom: 6px;
+}
+
+.legend-item,
+.legend-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.legend-item {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.legend-item:hover,
+.legend-item:focus-visible { border-color: var(--border); color: var(--text-primary); }
+.legend-item[aria-pressed="false"] { opacity: 0.4; text-decoration: line-through; }
+
+.scatter-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.scatter-reset {
+  font: inherit;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.scatter-reset:hover { color: var(--text-primary); }
+
+.scatter-plot { position: relative; width: 100%; }
+.scatter-plot svg {
+  display: block;
+  cursor: grab;
+  touch-action: pan-y; /* horizontal drag pans; vertical swipe still scrolls the page */
+  user-select: none;
+}
+.scatter-plot svg.dragging { cursor: grabbing; }
+
+/* ---------- SVG marks ---------- */
+.grid line { stroke: var(--grid); stroke-width: 1; }
+.baseline { stroke: var(--axis); stroke-width: 1; }
+
+.tick-label {
+  fill: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.axis-title { fill: var(--text-secondary); font-size: 13px; }
+
+.point {
+  stroke: var(--surface); /* thin surface ring separates overlapping points */
+  stroke-width: 1.5;
+  transition: opacity 120ms;
+}
+.point.dimmed { opacity: 0.15; }
+
+.mean { stroke: var(--text-primary); stroke-width: 2.5; stroke-linecap: round; }
+.mean-halo { stroke: var(--surface); stroke-width: 6; stroke-linecap: round; }
+
+.trend { stroke: var(--text-secondary); stroke-width: 2; stroke-dasharray: 6 4; }
+
+.corner-label {
+  fill: var(--text-primary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 4px;
+}
+
+.hover-ring { fill: none; stroke: var(--text-primary); stroke-width: 1.5; pointer-events: none; }
+
+/* ---------- Tooltip ---------- */
+.scatter-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  z-index: 1;
+}
+.tt-heading { font-weight: 600; margin-bottom: 2px; }
+.tt-row { display: flex; justify-content: space-between; gap: 14px; }
+.tt-key { color: var(--text-secondary); }
+.tt-value { font-variant-numeric: tabular-nums; }
+
+/* ---------- Data table ---------- */
+.scatter-table { margin-top: 8px; font-size: 0.85rem; }
+.scatter-table summary { cursor: pointer; color: var(--text-secondary); }
+.scatter-table table { border-collapse: collapse; margin-top: 8px; }
+.scatter-table th,
+.scatter-table td { padding: 3px 12px 3px 0; text-align: left; border-bottom: 1px solid var(--grid); }
+.scatter-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---------- Upload panel ---------- */
+.upload {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  align-items: end;
+}
+.upload-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.upload-field input { font: inherit; color: var(--text-primary); max-width: 100%; }
+.warnings {
+  flex-basis: 100%;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
