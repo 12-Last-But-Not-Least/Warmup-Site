@@ -1,84 +1,125 @@
 import Papa from 'papaparse';
 
-const weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+const numericPattern = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
-/** Join raw Monday–Sunday CSV exports into { rows, warnings }. */
-export function buildRows(stepsCsvText, sleepCsvText) {
-  const steps = readSheet(stepsCsvText, 'steps');
-  const sleep = readSheet(sleepCsvText, 'sleep_hours');
-  const rows = [];
-  for (const [key, step] of steps.rows) {
-    const night = sleep.rows.get(key);
-    if (night) rows.push({ person: step.person, weekday: step.weekday, steps: step.value, sleepHours: night.value });
-  }
-  rows.sort((a, b) => a.person.localeCompare(b.person) || a.weekday - b.weekday);
-  return { rows, warnings: [...steps.warnings, ...sleep.warnings] };
-}
-
-function readSheet(text, metric) {
-  const rows = new Map(), warnings = [];
+/**
+ * Read a header-based CSV without guessing types or changing cell contents.
+ * Column names are trimmed and must be nonempty and unique (case-sensitive).
+ * Rows contain strings in column order, allowing a UI to offer column selectors.
+ * @param {string} text
+ * @returns {{columns: string[], rows: string[][], warnings: string[]}}
+ */
+export function parseCsv(text) {
+  const warnings = [];
+  const empty = () => ({ columns: [], rows: [], warnings });
   if (typeof text !== 'string') {
-    return { rows, warnings: [`${metric}: CSV input must be text`] };
+    warnings.push('CSV input must be text');
+    return empty();
   }
+  // Keep record indexes intact so warnings refer to the original CSV records.
   const { data, errors } = Papa.parse(text, { delimiter: ',' });
   const invalidRows = new Set(errors.map(error => error.row));
-  warnings.push(...errors.map(error => `${metric}: CSV record ${error.row + 1} skipped: ${error.message}`));
-  const header = data.shift()?.map(value => value.trim().toLowerCase());
-  if (invalidRows.has(0) || !header || header.length !== 8 || new Set(header).size !== 8 ||
-      weekdays.includes(header[0]) || !weekdays.every(day => header.includes(day))) {
-    warnings.push(`${metric}: expected a name column followed by Monday–Sunday columns`);
-    return { rows, warnings };
+  warnings.push(...errors.map(error => `CSV record ${error.row + 1} skipped: ${error.message}`));
+  const columns = data[0]?.map(value => value.trim());
+  if (invalidRows.has(0) || !columns || columns.some(column => !column) ||
+      new Set(columns).size !== columns.length) {
+    warnings.push('CSV must have a header with nonempty, unique column names');
+    return empty();
   }
-  const columns = weekdays.map(day => header.indexOf(day));
+  const rows = [];
+  data.slice(1).forEach((fields, index) => {
+    if (invalidRows.has(index + 1) || fields.every(value => !value.trim())) return;
+    if (fields.length !== columns.length) {
+      warnings.push(`CSV record ${index + 2} skipped: wrong number of fields`);
+      return;
+    }
+    rows.push(fields);
+  });
+  return { columns, rows, warnings };
+}
+
+/**
+ * The first header describes the value semantics (e.g. steps), the first column holds
+ * groups (e.g. person), and remaining headers are X values (e.g. weekday).
+ * Y is numeric; X type is selected by the caller. Group labels preserve case and are trimmed.
+ * Series are sorted by group name and their points by X for line chart renderers.
+ * Each series owns its group label; its points are [x, y] arrays.
+ * valueHeader preserves the top-left header. Categorical X text is preserved
+ * in xTickLabels. Repeated group rows are combined without aggregation.
+ * Returns warnings rather than throwing for invalid CSV or column selections.
+ * @param {string} text
+ * @param {{xColumns?: string[],
+ *   xType?: 'number' | 'category'}} [options]
+ * @returns {{series: {group: string, points: [number, number][]}[],
+ *   valueHeader: string | null, xType: 'number' | 'category',
+ *   xTickLabels?: Record<number, string>, warnings: string[]}}
+ */
+export function buildPlotData(text, options) {
+  const { columns, rows, warnings } = parseCsv(text);
+  const { xColumns = columns.slice(1), xType = 'category' } = options ?? {};
+  const result = {
+    valueHeader: columns[0] ?? null,
+    xType,
+    ...(xType === 'category' ? { xTickLabels: {} } : {}),
+    series: [], warnings,
+  };
+  if (!columns.length) return result;
+  if (!['number', 'category'].includes(xType)) warnings.push('X type must be number or category');
+  const validHeaders = Array.isArray(xColumns) && xColumns.length > 0 &&
+    new Set(xColumns).size === xColumns.length &&
+    xColumns.every(header => columns.indexOf(header) > 0);
+  if (!validHeaders) warnings.push('Select unique existing X headers after the first column');
+  if (!validHeaders || !['number', 'category'].includes(xType)) return result;
+
+  // Resolve X once per selected header, rather than once per data cell.
+  const axes = [];
+  xColumns.forEach((header, index) => {
+    const x = xType === 'category' ? index : Number(header);
+    if (xType === 'number' && (!numericPattern.test(header) || !Number.isFinite(x))) {
+      warnings.push(`X header "${header}" skipped: not a finite number`);
+      return;
+    }
+    if (xType === 'category') result.xTickLabels[x] = header;
+    axes.push({ column: columns.indexOf(header), x });
+  });
+  const groups = new Map();
   const counts = new Map();
   const skip = reason => counts.set(reason, (counts.get(reason) || 0) + 1);
-  data.forEach((fields, index) => {
-    if (invalidRows.has(index + 1) || fields.every(value => !value.trim())) return;
-    if (fields.length !== header.length) {
-      warnings.push(`${metric}: CSV record ${index + 2} skipped: wrong number of fields`);
-      return;
+  for (const fields of rows) {
+    const group = fields[0].trim();
+    for (const { column, x } of axes) {
+      if (!group) { skip('group was blank'); continue; }
+      const rawY = fields[column].trim();
+      if (!rawY) { skip('Y was blank'); continue; }
+      const y = Number(rawY);
+      if (!numericPattern.test(rawY) || !Number.isFinite(y)) {
+        skip('Y was not a finite number'); continue;
+      }
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group).push([x, y]);
     }
-    const person = fields[0].normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase()
-      .replace(/(^|[\s\-'’])\p{L}/gu, letter => letter.toUpperCase());
-    if (!person) {
-      warnings.push(`${metric}: CSV record ${index + 2} skipped: person was blank`);
-      return;
-    }
-    columns.forEach((column, weekday) => {
-      const raw = fields[column].trim(), value = Number(raw);
-      if (!raw) { skip(`${metric} was blank`); return; }
-      if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(raw) || !Number.isFinite(value)) {
-        skip(`${metric} wasn't a number`); return;
-      }
-      if (metric === 'steps' && (!Number.isSafeInteger(value) || value < 0)) {
-        skip('steps must be a nonnegative safe integer'); return;
-      }
-      if (metric === 'sleep_hours' && (value < 0 || value > 24)) {
-        skip('sleep_hours must be between 0 and 24'); return;
-      }
-      const key = JSON.stringify([person, weekday]);
-      if (rows.has(key)) { skip('duplicate person/weekday (kept first valid value)'); return; }
-      rows.set(key, { person, weekday, value });
-    });
-  });
-  for (const [reason, count] of counts) {
-    warnings.push(`${metric}: ${count} ${count === 1 ? 'value' : 'values'} skipped: ${reason}`);
   }
-  return { rows, warnings };
+  result.series = [...groups].sort(([a], [b]) => a.localeCompare(b))
+    .map(([group, points]) => ({ group, points: points.sort((a, b) => a[0] - b[0]) }));
+  for (const [reason, count] of counts) {
+    warnings.push(`${count} ${count === 1 ? 'observation' : 'observations'} skipped: ${reason}`);
+  }
+  return result;
 }
 
 // File access runs only when this module is Node's entry point.
 async function main() {
   const { readFile, writeFile } = await import('node:fs/promises');
   const { fileURLToPath } = await import('node:url');
-  const [steps, sleep] = await Promise.all([
-    readFile(new URL('../data/DATA - Step Count.csv', import.meta.url), 'utf8'),
-    readFile(new URL('../data/DATA - Hours of Sleep.csv', import.meta.url), 'utf8'),
-  ]);
-  const result = buildRows(steps, sleep);
+  const text = await readFile(new URL('../data/DATA - Step Count.csv', import.meta.url), 'utf8');
+  // Select only headers that exist in the raw file; no semantic renaming.
+  const result = buildPlotData(text);
   const output = new URL('../data/result.json', import.meta.url);
   await writeFile(output, JSON.stringify(result, null, 2) + '\n', 'utf8');
-  console.log(`Wrote ${result.rows.length} rows and ${result.warnings.length} warnings to ${fileURLToPath(output)}`);
+  const pointCount = result.series.reduce((count, series) => count + series.points.length, 0);
+  console.log(`${pointCount} points across ${result.series.length} groups`);
+  for (const warning of result.warnings) console.log(`  ${warning}`);
+  console.log(`Full plot data written to ${fileURLToPath(output)}`);
 }
 
 if (import.meta.main) {
