@@ -10,26 +10,33 @@
   <main>
     <header>
       <h1>Steps &amp; Sleep</h1>
-      <p id="status" class="subtitle">Upload a steps CSV and a sleep CSV to see the charts.</p>
+      <p id="status" class="subtitle">Upload two CSV files to see the charts. Each file gets its own line chart, and the third chart plots one against the other.</p>
     </header>
 
     <section class="card upload" aria-label="Upload data">
       <label class="upload-field">
-        <span>Steps CSV</span>
-        <input id="steps-file" type="file" accept=".csv,text/csv">
+        <span>First CSV (e.g. steps)</span>
+        <input id="file-a" type="file" accept=".csv,text/csv">
       </label>
       <label class="upload-field">
-        <span>Sleep CSV</span>
-        <input id="sleep-file" type="file" accept=".csv,text/csv">
+        <span>Second CSV (e.g. sleep)</span>
+        <input id="file-b" type="file" accept=".csv,text/csv">
       </label>
+      <div class="examples">
+        <span>Or try an example:</span>
+        <button type="button" data-a="data/DATA - Step Count.csv" data-b="data/DATA - Hours of Sleep.csv">Steps &amp; sleep</button>
+        <button type="button" data-a="data/examples/quiz_scores.csv" data-b="data/examples/study_hours.csv">Study hours &amp; quiz scores</button>
+        <button type="button" data-a="data/examples/ice_cream_sales.csv" data-b="data/examples/temperature.csv">Temperature &amp; ice cream</button>
+        <button type="button" data-a="data/examples/sleep_roommates.csv" data-b="data/examples/screen_time.csv">Screen time &amp; sleep</button>
+      </div>
       <ul id="warnings" class="warnings" hidden></ul>
     </section>
 
     <!-- Hidden until both files load successfully. -->
     <div id="charts" hidden>
-      <section id="chart-weekday-steps" class="card"></section>
-      <section id="chart-weekday-sleep" class="card"></section>
-      <section id="chart-sleep-steps" class="card"></section>
+      <section id="chart-a" class="card"></section>
+      <section id="chart-b" class="card"></section>
+      <section id="chart-scatter" class="card"></section>
     </div>
   </main>
 
