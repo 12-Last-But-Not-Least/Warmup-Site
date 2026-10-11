@@ -3,10 +3,41 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Warmup Site</title>
+  <title>Steps &amp; Sleep</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main id="app"></main>
-  <script type="module" src="js/main.js"></script>
+  <main>
+    <header>
+      <h1>Steps &amp; Sleep</h1>
+      <p id="status" class="subtitle">Upload a steps CSV and a sleep CSV to see the charts.</p>
+    </header>
+
+    <section class="card upload" aria-label="Upload data">
+      <label class="upload-field">
+        <span>Steps CSV</span>
+        <input id="steps-file" type="file" accept=".csv,text/csv">
+      </label>
+      <label class="upload-field">
+        <span>Sleep CSV</span>
+        <input id="sleep-file" type="file" accept=".csv,text/csv">
+      </label>
+      <ul id="warnings" class="warnings" hidden></ul>
+    </section>
+
+    <!-- Hidden until both files load successfully. -->
+    <div id="charts" hidden>
+      <section id="chart-weekday-steps" class="card"></section>
+      <section id="chart-weekday-sleep" class="card"></section>
+      <section id="chart-sleep-steps" class="card"></section>
+    </div>
+  </main>
+
+  <!-- src/data.js imports 'papaparse' by name; this tells the browser where to find it (no build step). -->
+  <script type="importmap">
+    { "imports": { "papaparse": "https://cdn.jsdelivr.net/npm/papaparse@5.7.0/+esm" } }
+  </script>
+  <!-- ES modules don't load from file:// — run `npx serve` in this folder. -->
+  <script type="module" src="src/main.js"></script>
 </body>
 </html>
