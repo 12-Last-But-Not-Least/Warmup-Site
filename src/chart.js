@@ -24,6 +24,7 @@ import { linearFit, pearson } from './stats.js';
  * @property {boolean} [showTrend]   // linear fit line + r in the corner
  * @property {boolean} [showMeans]   // mean marker per distinct x (weekday plots)
  * @property {number}  [jitter]      // horizontal jitter in x units (weekday plots)
+ * @property {boolean} [connectGroups] // join each group's points in x order (line chart)
  */
 
 /**
@@ -229,7 +230,9 @@ function shapePath(slot, r) {
  * @returns {void}
  */
 export function drawScatter(container, input) {
-  const { title, xLabel, yLabel, xTickLabels, showTrend = false, showMeans = false, jitter = 0 } = input;
+  const { title, xLabel, yLabel, xTickLabels, showTrend = false, showMeans = false, connectGroups = false } = input;
+  // Jitter would make lines zig-zag sideways, so lines always plot at the exact x.
+  const jitter = connectGroups ? 0 : input.jitter ?? 0;
   const points = input.points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
   const id = ++instanceCounter;
 
@@ -303,6 +306,8 @@ export function drawScatter(container, input) {
   /** @type {Mark[]} */ let visibleMarks = [];
   /** @type {Mean[]} */ let means = [];
   /** @type {SVGCircleElement | null} */ let hoverRing = null;
+  /** @type {Map<string, SVGPathElement>} one line per group when connectGroups is on */
+  let lines = new Map();
 
   /** Rebuild the whole SVG for the current view. Cheap: data is small. */
   function render() {
@@ -357,10 +362,14 @@ export function drawScatter(container, input) {
     // Axis baselines and titles
     svgEl('line', { x1: left, x2: right, y1: bottom, y2: bottom, class: 'baseline' }, axis);
     svgEl('line', { x1: left, x2: left, y1: top, y2: bottom, class: 'baseline' }, axis);
-    svgEl('text', { x: (left + right) / 2, y: HEIGHT - 10, class: 'axis-title', 'text-anchor': 'middle' }, axis).textContent = xLabel;
-    svgEl('text', {
-      x: -(top + bottom) / 2, y: 18, class: 'axis-title', 'text-anchor': 'middle', transform: 'rotate(-90)',
-    }, axis).textContent = yLabel;
+    if (xLabel) {
+      svgEl('text', { x: (left + right) / 2, y: HEIGHT - 10, class: 'axis-title', 'text-anchor': 'middle' }, axis).textContent = xLabel;
+    }
+    if (yLabel) {
+      svgEl('text', {
+        x: -(top + bottom) / 2, y: 18, class: 'axis-title', 'text-anchor': 'middle', transform: 'rotate(-90)',
+      }, axis).textContent = yLabel;
+    }
 
     // -- Data (clipped to the plot area so zoom/pan doesn't spill over axes) --
     const data = svgEl('g', { 'clip-path': `url(#${clipId})` }, svg);
@@ -380,6 +389,17 @@ export function drawScatter(container, input) {
       const r = pearson(xy);
       const label = svgEl('text', { x: right - 8, y: top + 16, class: 'corner-label', 'text-anchor': 'end' }, svg);
       label.textContent = `r = ${Number.isFinite(r) ? r.toFixed(2) : '—'}  (n = ${xy.length})`;
+    }
+
+    // Lines go under the points so the markers stay visible on top.
+    lines = new Map();
+    if (connectGroups) {
+      for (const group of groups) {
+        const pts = visibleMarks.filter((m) => m.group === group).sort((a, b) => a.x - b.x);
+        if (pts.length < 2) continue;
+        const d = pts.map((m, i) => `${i ? 'L' : 'M'}${sx.map(m.x)},${sy.map(m.y)}`).join('');
+        lines.set(group, svgEl('path', { d, class: 'series-line', stroke: colorFor(pts[0].slot), fill: 'none' }, data));
+      }
     }
 
     for (const m of visibleMarks) {
@@ -410,6 +430,9 @@ export function drawScatter(container, input) {
   function applyHighlight() {
     for (const m of visibleMarks) {
       m.el?.classList.toggle('dimmed', highlighted !== null && m.group !== highlighted);
+    }
+    for (const [group, line] of lines) {
+      line.classList.toggle('dimmed', highlighted !== null && group !== highlighted);
     }
   }
 
@@ -622,7 +645,7 @@ export function drawScatter(container, input) {
     details.append(htmlEl('summary', '', 'Show data table'));
     const table = htmlEl('table');
     const headRow = htmlEl('tr');
-    for (const h of [...(hasGroups ? ['Group'] : []), xLabel, yLabel]) headRow.append(htmlEl('th', '', h));
+    for (const h of [...(hasGroups ? ['Group'] : []), xLabel || 'X', yLabel || 'Y']) headRow.append(htmlEl('th', '', h));
     table.append(htmlEl('thead'));
     table.tHead?.append(headRow);
 

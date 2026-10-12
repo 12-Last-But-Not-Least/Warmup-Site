@@ -1,12 +1,14 @@
 # Steps & Sleep
 
-A small website where you upload two spreadsheets, one with daily step counts and
-one with hours of sleep, and get three interactive charts:
+A small website where you upload two CSV files and get three interactive charts:
 
-1. **Steps by weekday:** each person's steps for each day of the week, plus the average for each day.
-2. **Sleep by weekday:** the same, for hours of sleep.
-3. **Steps vs. sleep:** one dot per person per day, with a trend line and a number (r)
-   showing how strongly sleep and steps move together.
+1. **A line chart of the first file:** one line per person (or group) across the columns.
+2. **A line chart of the second file:** the same, for the second file.
+3. **A scatter plot of one file against the other:** one dot per person per column,
+   with a trend line and a number (r) showing how strongly the two move together.
+
+It was built for daily steps and hours of sleep, but it works with any two files
+in the same layout: study hours and quiz scores, temperature and sales, and so on.
 
 Everything runs in the browser. The files you upload are never sent anywhere.
 
@@ -15,14 +17,13 @@ Everything runs in the browser. The files you upload are never sent anywhere.
 ## How to run it
 
 You need [Node.js](https://nodejs.org) installed, but only to start a small local
-web server. There is nothing to install or build.
+web server. There is nothing to build.
 
 ```sh
-cd scatter-app
-npx serve
+npm start
 ```
 
-Open the link it prints (usually http://localhost:3000).
+Open http://localhost:3000. (`npx serve` works too.)
 
 > Double-clicking `index.html` won't work. Browsers block this kind of JavaScript
 > when a page is opened straight from your disk, so it has to come from a server,
@@ -32,17 +33,17 @@ Open the link it prints (usually http://localhost:3000).
 
 ## How to use it
 
-1. Click **Steps CSV** and pick the steps file.
-2. Click **Sleep CSV** and pick the sleep file.
-3. The charts appear. The line under the title tells you how many days and people were loaded.
+1. Pick a file for **First CSV** and another for **Second CSV**.
+2. The charts appear. The line under the title says how many people were loaded
+   and how many pairs made it onto the scatter plot.
 
-You can try it with the two example files in the `data/` folder.
+Or click one of the **example** buttons to load a ready-made pair of files.
 
 **On the charts:**
 
 | To do this | Do this |
 |---|---|
-| See exact values | Hover over a dot (or an average bar) |
+| See exact values | Hover over a dot |
 | Focus on one person | Hover over their name in the legend |
 | Hide or show a person | Click their name in the legend |
 | Zoom in or out | Hold Ctrl (or ⌘ on a Mac) and scroll, or pinch on a trackpad |
@@ -54,8 +55,8 @@ You can try it with the two example files in the `data/` folder.
 
 ## What the files should look like
 
-Use the spreadsheets exactly as they come out of Google Sheets
-(**File → Download → CSV**). One person per row, then a column for each day:
+One row per person (or group), one column per category, numbers in the cells.
+Google Sheets exports in this layout work as they are (**File → Download → CSV**).
 
 ```
 Step Count,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday
@@ -63,138 +64,126 @@ Eita,3608,4246,4116,5500,4207,3590,4563
 Jay,7440,10560,6566,9767,3235,5623,2404
 ```
 
-```
-Hours of Sleep,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday
-Eita,6.839,6.621,6.993,5.989,6.143,6.022,6.212
-Jay,9,8.4,7.6,8,9.5,9,8
-```
+- **Top-left cell:** what the numbers mean (`Step Count`, `Hours of Sleep`, `Quiz Score (%)`).
+  It becomes the chart title and axis label.
+- **Rest of the first row:** the categories along the bottom of the line charts
+  (weekdays here, but they could be weeks, months, anything).
+- **First column:** the people or groups. Each one gets its own colour and line.
+- **Everything else:** numbers.
 
-- **First column:** the person's name. The heading above it can say anything.
-- **Next seven columns:** Monday to Sunday, in any order.
-- **Steps:** whole numbers, zero or more.
-- **Sleep:** hours between 0 and 24. Decimals are fine.
-- **Names:** extra spaces and capital letters don't matter. `jay ` and `Jay` count as the same person.
+**How the two files are paired for the scatter plot:** by person and column name.
+Jay's Monday steps go with Jay's Monday sleep, even if the second file lists its
+columns in a different order. A person or column that's only in one file still
+appears on that file's line chart but is left off the scatter plot.
 
 **What happens to problems in the files:**
 
-- **Blank cells** are skipped, so they don't show up as zeros on the charts.
-  The page tells you how many were skipped.
-- **Text where a number should be,** or impossible values like 30 hours of sleep,
-  are skipped the same way and listed under the upload buttons.
-- **A day that's only in one file** (steps but no sleep, or the other way round) is left out.
-- **A file in the wrong layout** shows a message explaining what was expected, and no charts appear.
+- **Blank cells** are skipped, so they don't show up as zeros. The page says how many.
+- **Text where a number should be** is skipped the same way.
+- **A file with a broken header** (empty or repeated column names) shows a message
+  explaining what's wrong, and no charts appear.
 
 ---
 
 ## What's inside
 
 ```
-scatter-app/
-  index.html        the page: title, the two upload buttons, spaces for the charts
-  styles.css        colours, fonts, layout, light and dark mode
-  src/
-    main.js         connects everything: reads the uploads, prepares the data, draws the charts
-    data.js         reads the CSV files and turns them into clean rows
-    chart.js        draws the charts (written from scratch, no chart library)
-    stats.js        the maths for the trend line and r
-  data/
-    DATA - Step Count.csv       example files to try uploading
-    DATA - Hours of Sleep.csv
+index.html          the page: upload buttons, example buttons, spaces for the charts
+styles.css          colours, layout, light and dark mode
+src/
+  main.js           connects everything: reads the files, prepares the charts, draws them
+  data.js           reads a CSV file and turns it into one list of points per person
+  chart.js          draws the charts (written from scratch, no chart library)
+  stats.js          the maths for the trend line and r
+data/
+  DATA - Step Count.csv, DATA - Hours of Sleep.csv     the team's real data
+  examples/         made-up example pairs used by the example buttons
+server.js           tiny local web server for `npm start`
 ```
 
 ### How the pieces fit together
 
 ```
-your two CSV files
+two CSV files
       │
       ▼
-data.js     reads both files, checks every value, matches each person's
-            steps and sleep for the same day
-      │     → a list of rows like { person: "Jay", weekday: 0, steps: 7440, sleepHours: 9 }
+data.js     reads each file separately → for each person, a list of [x, y] points
+      │     plus the file's labels (title from the top-left cell, column names)
       ▼
-main.js     turns those rows into three chart descriptions
-            (title, axis labels, which value goes on which axis)
+main.js     builds three chart descriptions:
+            a line chart for each file, and a scatter that pairs the two files
+            by person and column name
       │
       ▼
-chart.js    draws each chart on the page
+chart.js    draws each chart
 ```
-
-Weekdays are stored as numbers: **0 = Monday … 6 = Sunday.**
 
 ### Each file in a bit more detail
 
-**`src/data.js`** (CSV reading). Exports one function:
+**`src/data.js`** (CSV reading). Main function:
 
 ```js
-const { rows, warnings } = buildRows(stepsFileText, sleepFileText);
+const { series, valueHeader, xTickLabels, warnings } = buildPlotData(csvText);
 ```
 
-- `rows` is one entry per person per day that appears in both files, sorted by name and then by day.
-- `warnings` is a list of plain-English messages about anything that was skipped.
-- It uses a library called [Papa Parse](https://www.papaparse.com/) to read CSV files
-  correctly, including quoted text and different line endings.
-  `index.html` loads Papa Parse from a CDN, which is why there's nothing to install.
+- `series`: one entry per person, e.g. `{ group: 'Jay', points: [[0, 7440], [1, 10560], ...] }`.
+  The first number in each point is the column position (0 = first column after the names).
+- `valueHeader`: the top-left cell, e.g. `'Step Count'`.
+- `xTickLabels`: column names by position, e.g. `{ 0: 'Monday', 1: 'Tuesday', ... }`.
+- `warnings`: plain-English messages about anything skipped.
 
-**`src/main.js`** (the glue). Waits until both files are picked, calls `buildRows`,
-shows any warnings, then asks `chart.js` to draw the three charts. It hides the
-charts if the files can't be used.
+It uses [Papa Parse](https://www.papaparse.com/) to read CSV files correctly.
+`index.html` loads Papa Parse from a CDN, which is why there's nothing to install
+for the website.
 
-**`src/chart.js`** (the charts). Exports one function:
+**`src/main.js`** (the glue). Parses both files, shows any warnings, then draws the
+two line charts and the scatter plot. It doesn't mention steps or sleep anywhere;
+titles and labels all come from the files.
+
+**`src/chart.js`** (the charts). One function draws all three:
 
 ```js
 drawScatter(whereToDraw, chartDescription);
 ```
 
-The same function draws all three charts. It doesn't know anything about steps or
-sleep; it just plots the numbers it's given. A chart description looks like this:
+A chart description looks like this:
 
 ```js
 {
-  title: 'Steps by weekday',
-  xLabel: 'Weekday',
-  yLabel: 'Steps',
-  points: [{ x: 0, y: 7440, group: 'Jay' }, ...],   // group = whose dot it is (sets the colour)
-  xTickLabels: { 0: 'Mon', 1: 'Tue', ..., 6: 'Sun' }, // optional: words instead of numbers on the x-axis
-  jitter: 0.15,       // optional: spreads dots sideways a little so they don't hide each other
-  showMeans: true,    // optional: draws the average bar for each day
-  showTrend: false,   // optional: draws the trend line and shows r
+  title: 'Step Count',
+  xLabel: '',                     // axis titles; empty means none
+  yLabel: 'Step Count',
+  points: [{ x: 0, y: 7440, group: 'Jay' }, ...],   // group sets the colour
+  xTickLabels: { 0: 'Monday', ... },  // optional: words instead of numbers on the x-axis
+  connectGroups: true,   // optional: draw a line through each group's points (line chart)
+  showTrend: false,      // optional: draw the trend line and show r (scatter)
+  showMeans: false,      // optional: draw an average bar at each x
+  jitter: 0,             // optional: spread dots sideways a little (ignored when lines are on)
 }
 ```
 
-Inside, it works out the axis ranges and tick marks, draws the dots, legend,
-tooltip and data table, and handles zooming and dragging. Each person gets a
-colour **and** a shape (circle, square, triangle…), so people can still be told
-apart by anyone who has trouble seeing colours. A person keeps the same colour
-and shape on all three charts.
+Each person gets a colour **and** a shape (circle, square, triangle…), so people
+can still be told apart by anyone who has trouble seeing colours. A person keeps
+the same colour and shape on all three charts.
 
-**`src/stats.js`** (the maths). Two small functions:
+**`src/stats.js`** (the maths):
 
 - `linearFit` finds the straight line that best fits the dots (the dashed trend line).
-- `pearson` gives **r**, a number from −1 to 1. Near 1 means more sleep goes with
-  more steps, near −1 means the opposite, and near 0 means no clear link.
-
----
-
-## Putting it online
-
-The site is just files, with no server code and no build step, so any static host works:
-
-- **GitHub Pages:** push this folder to a GitHub repo, then go to
-  **Settings → Pages → Deploy from branch** and pick the main branch.
-- **Netlify:** drag this folder onto [app.netlify.com/drop](https://app.netlify.com/drop).
+- `pearson` gives **r**, from −1 to 1. Near 1 means the two go up together, near −1
+  means one goes down as the other goes up, and near 0 means no clear link.
 
 ---
 
 ## Notes for the team
 
-- **Changing the data rules** (what counts as valid, how blanks are handled) happens in `src/data.js`.
+- **Changing how files are read** (what counts as valid, how blanks are handled) happens in `src/data.js`.
 - **Changing how the charts look or behave** happens in `src/chart.js` and `styles.css`.
-- **Changing which charts appear,** their titles or their options happens in `toPlotInputs()` in `src/main.js`.
-- **Keep the row format the same:** `data.js` and `main.js` both rely on
-  `{ person, weekday, steps, sleepHours }`. If it ever has to change,
-  tell everyone first.
+- **Changing which charts appear** or how they're labelled happens in `src/main.js`.
+- **Adding an example:** put two CSVs in `data/examples/` and add a button in
+  `index.html` with `data-a` and `data-b` pointing at them.
 - **Type checking:** `main.js`, `chart.js` and `stats.js` start with `// @ts-check`, so
-  VS Code underlines type mistakes as you type. To check them from the terminal:
+  VS Code underlines type mistakes as you type. From the terminal:
   `npx -p typescript tsc --noEmit --allowJs --target es2022 --module es2022 --moduleResolution bundler --lib es2022,dom,dom.iterable src/main.js src/chart.js src/stats.js`
-  No output means no problems. Only files that start with `// @ts-check` are checked.
-  `data.js` doesn't have it yet, so it isn't checked. It still needs `// @ts-check` and JSDoc types.
+  No output means no problems.
+- **Deploying:** pushing to `main` deploys to GitHub Pages automatically
+  (`.github/workflows/deploy.yml`).
