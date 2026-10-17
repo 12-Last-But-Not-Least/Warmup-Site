@@ -50,6 +50,12 @@ Or click one of the **example** buttons to load a ready-made pair of files.
 | Move around | Click and drag |
 | Go back to the full view | Double-click the chart, or press **Reset view** |
 | See the raw numbers | Open **Show data table** under a chart |
+| Switch between Canvas and SVG drawing | Use the **Render charts with** buttons at the top (Canvas is the default) |
+| Use a log scale | Pick **Log** in a chart's **Y scale** (or **X scale**) menu. Each axis is set separately |
+
+**About log scale:** a log axis can't show 0 or negative numbers. Those points are
+hidden, and the page tells you how many. The line charts have weekday names along
+the bottom, so they only offer a log scale for the Y axis.
 
 ---
 
@@ -93,8 +99,14 @@ styles.css          colours, layout, light and dark mode
 src/
   main.js           connects everything: reads the files, prepares the charts, draws them
   data.js           reads a CSV file and turns it into one list of points per person
-  chart.js          draws the charts (written from scratch, no chart library)
-  stats.js          the maths for the trend line and r
+  chart.js          builds each chart (ticks, points, hover, zoom, legend) and hands it to a renderer
+  scales.js         linear and log scales and axis ticks (no browser code, so it's unit-tested)
+  render-common.js  what both renderers share: the chart "scene" format and marker shapes
+  render-canvas.js  draws a scene with HTML5 canvas (the default)
+  render-svg.js     draws a scene as SVG
+  stats.js          the maths for the trend line and r, and a hook for swapping in another stats library
+test/
+  scales.test.js    tests for scales, ticks and the stats hook (`npm test`)
 data/
   DATA - Step Count.csv, DATA - Hours of Sleep.csv     the team's real data
   examples/         made-up example pairs used by the example buttons
@@ -115,7 +127,10 @@ main.js     builds three chart descriptions:
             by person and column name
       │
       ▼
-chart.js    draws each chart
+chart.js    works out where everything goes (a "scene" of pixel positions)
+      │
+      ▼
+render-canvas.js  or  render-svg.js    paint the scene
 ```
 
 ### Each file in a bit more detail
@@ -143,7 +158,7 @@ titles and labels all come from the files.
 **`src/chart.js`** (the charts). One function draws all three:
 
 ```js
-drawScatter(whereToDraw, chartDescription);
+const chart = drawScatter(whereToDraw, chartDescription, options);
 ```
 
 A chart description looks like this:
@@ -162,6 +177,26 @@ A chart description looks like this:
 }
 ```
 
+The optional third argument and the returned handle control the new settings:
+
+```js
+const chart = drawScatter(whereToDraw, chartDescription, {
+  renderer: 'canvas',   // 'canvas' (default) or 'svg'
+  xScale: 'linear',     // 'linear' (default) or 'log'
+  yScale: 'linear',
+  controls: true,       // false hides the Linear/Log menus so you can build your own
+  onHidden: (n) => {},  // called with how many points a log axis can't show (value of 0 or less)
+});
+
+chart.setRenderer('svg');     // switch live; the current zoom is kept
+chart.setScale('y', 'log');   // per axis; that axis goes back to its full view
+chart.getState();             // { renderer, xScale, yScale, hidden }
+```
+
+Both renderers draw the same scene and read the same CSS colour variables, so
+hover, zoom, pan and light/dark mode behave the same either way. `main.js` has the
+Canvas/SVG buttons and shows the `onHidden` counts in the warnings list.
+
 Each person gets a colour **and** a shape (circle, square, triangle…), so people
 can still be told apart by anyone who has trouble seeing colours. A person keeps
 the same colour and shape on all three charts.
@@ -172,6 +207,23 @@ the same colour and shape on all three charts.
 - `pearson` gives **r**, from −1 to 1. Near 1 means the two go up together, near −1
   means one goes down as the other goes up, and near 0 means no clear link.
 
+**Plugging in another stats library.** The chart gets its numbers from
+`computeStats(points)`. To use a different implementation, register it once:
+
+```js
+import { setStatsProvider } from './stats.js';
+
+setStatsProvider((points) => ({   // points: [{ x, y }, ...] currently on the chart
+  n, r, slope, intercept,         // required; use NaN (don't throw) when undefined
+  r_squared, p_value,             // optional; p_value is added to the corner label
+}));
+setStatsProvider();               // go back to the built-in version
+```
+
+The field names match `correlation_stats()` in `Warm_up_project/stats.py`. The
+provider has to answer immediately (it can't be `async`), so calling that Python
+code through an API would need an extra step that doesn't exist yet.
+
 ---
 
 ## Notes for the team
@@ -179,11 +231,12 @@ the same colour and shape on all three charts.
 - **Changing how files are read** (what counts as valid, how blanks are handled) happens in `src/data.js`.
 - **Changing how the charts look or behave** happens in `src/chart.js` and `styles.css`.
 - **Changing which charts appear** or how they're labelled happens in `src/main.js`.
+- **Tests:** `npm test` runs the scale, tick and stats-hook tests in `test/`.
 - **Adding an example:** put two CSVs in `data/examples/` and add a button in
   `index.html` with `data-a` and `data-b` pointing at them.
-- **Type checking:** `main.js`, `chart.js` and `stats.js` start with `// @ts-check`, so
+- **Type checking:** The files in `src/` start with `// @ts-check`, so
   VS Code underlines type mistakes as you type. From the terminal:
-  `npx -p typescript tsc --noEmit --allowJs --target es2022 --module es2022 --moduleResolution bundler --lib es2022,dom,dom.iterable src/main.js src/chart.js src/stats.js`
+  `npx -p typescript tsc --noEmit --allowJs --target es2022 --module es2022 --moduleResolution bundler --lib es2022,dom,dom.iterable src/main.js`
   No output means no problems.
 - **Deploying:** pushing to `main` deploys to GitHub Pages automatically
   (`.github/workflows/deploy.yml`).

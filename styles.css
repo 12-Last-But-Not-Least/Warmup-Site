@@ -143,13 +143,35 @@ h1 { margin: 0 0 4px; font-size: 1.6rem; }
 .scatter-reset:hover { color: var(--text-primary); }
 
 .scatter-plot { position: relative; width: 100%; }
-.scatter-plot svg {
-  display: block;
+.scatter-plot {
   cursor: grab;
   touch-action: pan-y; /* horizontal drag pans; vertical swipe still scrolls the page */
   user-select: none;
 }
-.scatter-plot svg.dragging { cursor: grabbing; }
+.scatter-plot > svg,
+.scatter-plot > canvas { display: block; }
+.scatter-plot.dragging { cursor: grabbing; }
+
+.scatter-scale { font-size: 0.8rem; color: var(--text-secondary); }
+.scatter-scale select {
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.renderer-toggle { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; color: var(--text-secondary); }
+.renderer-toggle button {
+  font: inherit;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.renderer-toggle button[aria-pressed="true"] { color: var(--text-primary); border-color: var(--text-muted); font-weight: 600; }
 
 /* ---------- SVG marks ---------- */
 .grid line { stroke: var(--grid); stroke-width: 1; }
