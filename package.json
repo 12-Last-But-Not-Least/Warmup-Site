@@ -2,6 +2,7 @@
   "name": "warmup-site",
   "private": true,
   "scripts": {
+    "check:stats": "node --experimental-detect-module scripts/check-stats.mjs",
     "parse:data": "node src/data.js",
     "start": "node server.js"
   },
