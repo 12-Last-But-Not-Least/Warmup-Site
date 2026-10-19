@@ -14,7 +14,7 @@
  */
 import { computeStats } from './stats.js';
 import {
-  formatLogTick, formatTick, fromT, isPlottable, logTicks, makeScale, niceTicks, paddedExtent,
+  categoryLabelStep, formatLogTick, formatTick, fromT, isPlottable, logTicks, makeScale, niceTicks, paddedExtent,
 } from './scales.js';
 import { MEAN_HALF_WIDTH, POINT_R, colorFor, shapePath } from './render-common.js';
 import { createCanvasRenderer } from './render-canvas.js';
@@ -76,6 +76,7 @@ const HEIGHT = 360;
 const HIT_RADIUS = 24;        // px; hover target is much bigger than the mark
 const LOG_MEAN_HALF_PX = 12;  // mean bars have no fixed width in x units on a log axis
 const TREND_SAMPLES = 64;     // a straight line is a curve on a log axis
+const TICK_FONT_PX = 12;      // tick label size; keep in step with .tick-label (styles.css) and render-canvas.js
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -108,6 +109,24 @@ function htmlEl(tag, className, text) {
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+/** @type {CanvasRenderingContext2D | null} offscreen context for measuring tick labels */
+let measureCtx = null;
+
+/**
+ * Width in px of the widest label at the tick-label font. Labels come from
+ * uploaded CSVs, so they're measured rather than estimated per character.
+ * @param {string[]} labels
+ * @param {string} fontFamily
+ */
+function widestLabelPx(labels, fontFamily) {
+  const ctx = measureCtx ??= document.createElement('canvas').getContext('2d');
+  // No 2D context: assume every character is as wide as the font size, which
+  // is wider than any glyph measured (uppercase W is ~11.6px at 12px).
+  if (!ctx) return Math.max(0, ...labels.map((l) => l.length)) * TICK_FONT_PX;
+  ctx.font = `${TICK_FONT_PX}px ${fontFamily}`;
+  return Math.max(0, ...labels.map((l) => ctx.measureText(l).width));
 }
 
 /**
@@ -149,6 +168,9 @@ export function drawScatter(container, input, options = {}) {
   // Categorical x (weekday names) has no meaningful log scale.
   const xScalable = !xTickLabels;
   if (!xScalable) kinds.x = 'linear';
+  const widestCategoryPx = xTickLabels
+    ? widestLabelPx(Object.values(xTickLabels), getComputedStyle(container).fontFamily)
+    : 0;
 
   container.replaceChildren();
   container.classList.add('scatter');
@@ -285,10 +307,13 @@ export function drawScatter(container, input, options = {}) {
     const scale = isX ? sx : sy;
     const px = isX ? plotW : plotH;
     if (isX && xTickLabels) {
+      // When the labels would overlap, label every step-th category (by index,
+      // so labels don't jump while panning). Gridlines still mark every category.
+      const step = categoryLabelStep(Math.abs(scale.map(1) - scale.map(0)), widestCategoryPx);
       return Object.entries(xTickLabels)
         .map(([k, text]) => ({ v: Number(k), text }))
         .filter((t) => t.v >= t0 && t.v <= t1)
-        .map(({ v, text }) => ({ px: scale.map(v), text }));
+        .map(({ v, text }) => ({ px: scale.map(v), text: v % step === 0 ? text : '' }));
     }
     if (kind === 'log') {
       return logTicks(t0, t1, Math.max(3, Math.round(px / (isX ? 70 : 40))))

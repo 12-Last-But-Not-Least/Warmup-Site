@@ -96,6 +96,19 @@ export function niceTicks(min, max, count) {
 }
 
 /**
+ * How many categories to step between labels so the widest one doesn't
+ * overlap its neighbour: 1 shows every label, 3 shows every third.
+ * A degenerate axis (no width) shows every label rather than hiding them.
+ * @param {number} pxPerUnit    pixels between neighbouring categories
+ * @param {number} widestLabelPx
+ * @param {number} [gapPx]      minimum space between labels
+ */
+export function categoryLabelStep(pxPerUnit, widestLabelPx, gapPx = 8) {
+  if (!(pxPerUnit > 0)) return 1;
+  return Math.max(1, Math.ceil((widestLabelPx + gapPx) / pxPerUnit));
+}
+
+/**
  * Tick values for a log axis whose visible t-space range is [tMin, tMax].
  * Always powers of ten; intermediate 2 and 5 (or 1-9) are added when few
  * decades are visible so the axis never looks empty.
