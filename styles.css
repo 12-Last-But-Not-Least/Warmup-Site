@@ -198,7 +198,9 @@ html:has(#charts:not([hidden])) { scroll-padding-top: calc(var(--settings-h) + 8
 .renderer-toggle button:first-of-type { border-radius: 6px 0 0 6px; }
 .renderer-toggle button:last-of-type { border-radius: 0 6px 6px 0; margin-left: -1px; }
 .renderer-toggle button:hover { color: var(--text-primary); }
-.renderer-toggle button[aria-pressed="true"] {
+/* One "this is active" look: the chosen renderer and the example on screen. */
+.renderer-toggle button[aria-pressed="true"],
+.examples button[aria-current="true"] {
   color: var(--surface);
   background: var(--text-primary);
   border-color: var(--text-primary);
