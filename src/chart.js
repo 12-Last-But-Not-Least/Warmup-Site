@@ -605,9 +605,10 @@ export function drawScatter(container, input, options = {}) {
     meanCache = null;
     if (selects[axis]) selects[axis].value = kind;
     placeMarks();
-    // The old view is in the other scale's units; start this axis over.
+    // The old view is in the other scale's units, and zoom always scales both
+    // axes together, so resetting only this axis would leave the other zoomed.
     home = { x: homeX(), y: homeY() };
-    view = { ...view, [axis]: home[axis] };
+    view = { x: home.x, y: home.y };
     hideTooltip();
     render();
     reportHidden();

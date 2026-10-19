@@ -69,6 +69,21 @@ test('chart controls retain zoom, width and fullscreen while groups are restored
   assert.equal(observers.size,0); assert.equal(themeListeners.size,0);
 });
 
+test('switching an axis scale while zoomed restores the home view on both axes', () => {
+  const root = document.createElement('section'); document.body.append(root);
+  const input = {title:'T',xLabel:'X',yLabel:'Y',points:[{x:1,y:10,group:'A'},{x:4,y:1000,group:'A'},{x:9,y:100,group:'B'}]};
+  const home = drawScatter(root, input, {renderer:'svg', controls:false});
+  const homeView = home.getState().view; home.destroy();
+  const zoomed = {x:[homeView.x[0] * 5, homeView.x[1] * 5], y:[homeView.y[0] * 5, homeView.y[1] * 5]};
+  const handle = drawScatter(root, input, {renderer:'svg', controls:false, view:zoomed});
+  try {
+    handle.setScale('y','log');
+    assert.deepEqual(handle.getState().view.x, homeView.x, 'X must not stay zoomed when Y changes scale');
+    handle.setScale('y','linear');
+    assert.deepEqual(handle.getState().view, homeView);
+  } finally { handle.destroy(); root.remove(); }
+});
+
 test('an all-hidden chart retains every group control for recovery', () => {
   const root = document.createElement('section'); document.body.append(root);
   const model = createModel(...generatedPair(2).map(text=>buildPlotData(text)));
