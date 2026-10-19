@@ -154,13 +154,17 @@ h1 { margin: 0 0 4px; font-size: 1.6rem; }
 .scatter-plot.dragging { cursor: grabbing; }
 
 .scatter-scale { font-size: 0.8rem; color: var(--text-secondary); }
+/* Same size and shape as the Reset view button so the toolbar reads as one set. */
 .scatter-scale select {
   font: inherit;
   color: var(--text-primary);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 6px;
+  padding: 4px 6px; /* one more px than the button: native selects ignore line-height */
+  cursor: pointer;
 }
+.scatter-scale select:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
 
 /* Canvas/SVG choice drawn as one segmented control: the two buttons share a
    border, and the pressed one is filled so the state doesn't rely on weight alone. */
