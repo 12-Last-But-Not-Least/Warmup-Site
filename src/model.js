@@ -67,7 +67,7 @@ export function createModel(a, b, names = ['First CSV', 'Second CSV']) {
       const points = useMeans ? meanPoints : records;
       return chartPayload(points, { title: labels[i], xLabel: '', yLabel: labels[i], xTickLabels: ticks, connectGroups: true, aggregate: useMeans, meanPoints, sourceTotal: records.length, groupSlots });
     };
-    const chartInputs = [line(ra, 0, a.xTickLabels), line(rb, 1, b.xTickLabels), chartPayload(rp, { title: `${labels[0]} vs. ${labels[1]}`, xLabel: labels[1], yLabel: labels[0], showTrend: true, statsOverride: fit, groupSlots })];
+    const chartInputs = [line(ra, 0, a.xTickLabels), line(rb, 1, b.xTickLabels), chartPayload(rp, { title: `${labels[0]} vs. ${labels[1]}`, xLabel: labels[1], yLabel: labels[0], showTrend: true, statsOverride: rp.length > LIMITS.drawn ? fit : undefined, groupSlots })];
     chartInputs.forEach((chart, i) => {
       chart.groupNames = [...new Set(filtered[i].map(r => r.group))].sort((x, y) => x.localeCompare(y));
       chart.hiddenGroups = [...(hiddenBySource[i] ?? [])];

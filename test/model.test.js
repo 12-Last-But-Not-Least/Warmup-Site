@@ -97,3 +97,12 @@ test('large-data overview recomputes means after exclusions without losing legen
   assert.equal(input.meanPoints[0].n, 999);
   assert.equal(m.page({mode:'group',excludedGroups:['Person 00001']}).total, 999);
 });
+
+test('the scatter carries a model-computed fit only when its points are a drawing sample', () => {
+  const small = createModel(...generatedPair(50).map(t => buildPlotData(t))).view().charts[2];
+  assert.ok(small.points.length === small.total);
+  assert.equal(small.statsOverride, undefined, 'unsampled charts must let the chart (and setStatsProvider) compute stats');
+  const large = createModel(...generatedPair(1000).map(t => buildPlotData(t))).view().charts[2];
+  assert.ok(large.points.length < large.total);
+  assert.equal(large.statsOverride.n, large.total, 'sampled charts keep the full-data fit');
+});

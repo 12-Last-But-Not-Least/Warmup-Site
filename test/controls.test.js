@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { buildPlotData } from '../src/data.js';
 import { createModel, generatedPair } from '../src/model.js';
 import { drawScatter } from '../src/chart.js';
+import { setStatsProvider } from '../src/stats.js';
 import { chartPng } from '../src/chart-image.js';
 
 // DOM contract tests, not a substitute for browser layout, native fullscreen,
@@ -82,6 +83,16 @@ test('switching an axis scale while zoomed restores the home view on both axes',
     handle.setScale('y','linear');
     assert.deepEqual(handle.getState().view, homeView);
   } finally { handle.destroy(); root.remove(); }
+});
+
+test('the scatter legend uses a custom stats provider when the data is not sampled', () => {
+  const root = document.createElement('section'); document.body.append(root);
+  const model = createModel(...generatedPair(5).map(text => buildPlotData(text)));
+  setStatsProvider(points => ({ n: points.length, r: 0.5, slope: 1, intercept: 0 }));
+  const handle = drawScatter(root, model.view().charts[2], {renderer:'svg', controls:false});
+  try {
+    assert.match(root.querySelector('.trend-stat').textContent, /r = 0\.50/);
+  } finally { setStatsProvider(); handle.destroy(); root.remove(); }
 });
 
 test('an all-hidden chart retains every group control for recovery', () => {
