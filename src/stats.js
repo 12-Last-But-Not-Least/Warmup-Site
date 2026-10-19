@@ -98,3 +98,77 @@ export function setStatsProvider(fn) {
 export function computeStats(points) {
   return provider(points);
 }
+
+/**
+ * @typedef {{x: number, y: number, group?: string}} GroupedPoint
+ *
+ * @typedef {Object} Summary
+ * @property {number} n       count of finite values
+ * @property {number} mean
+ * @property {number} sd      sample standard deviation (n - 1); NaN when n < 2
+ * @property {number} min
+ * @property {number} max
+ * @property {number} median
+ *
+ * @typedef {Object} GroupSummary
+ * @property {string | number} key   group name, or x value when grouping by x
+ * @property {string} label          text to show for the key
+ * @property {Summary} stats
+ */
+
+/**
+ * Summary statistics for one list of numbers. Non-finite values are ignored.
+ * Every field except n is NaN for an empty list; never throws.
+ * @param {number[]} values
+ * @returns {Summary}
+ */
+export function describe(values) {
+  const v = values.filter(Number.isFinite).sort((a, b) => a - b);
+  const n = v.length;
+  if (n === 0) return { n: 0, mean: NaN, sd: NaN, min: NaN, max: NaN, median: NaN };
+
+  const mean = v.reduce((s, y) => s + y, 0) / n;
+  const sd = n < 2 ? NaN : Math.sqrt(v.reduce((s, y) => s + (y - mean) ** 2, 0) / (n - 1));
+  const mid = Math.floor(n / 2);
+  const median = n % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
+  return { n, mean, sd, min: v[0], max: v[n - 1], median };
+}
+
+/**
+ * Flatten buildPlotData's series into the points groupStats (and the chart) take.
+ * @param {{group: string, points: [number, number][]}[]} series
+ * @returns {GroupedPoint[]}
+ */
+export function pointsFromSeries(series) {
+  return series.flatMap(({ group, points }) => points.map(([x, y]) => ({ x, y, group })));
+}
+
+/**
+ * Summary statistics of y per row label (by 'group', the default) or per
+ * column (by 'x')
+ * Order: groups by name, x by value, points with no group fall into '(no group)'.
+ * @param {GroupedPoint[]} points
+ * @param {'group' | 'x'} [by]
+ * @param {Record<number, string>} [labels]
+ * @returns {GroupSummary[]}
+ */
+export function groupStats(points, by = 'group', labels) {
+  /** @type {Map<string | number, number[]>} */
+  const buckets = new Map();
+  for (const p of points) {
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+    const key = by === 'x' ? p.x : p.group ?? '';
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(p.y); else buckets.set(key, [p.y]);
+  }
+
+  const keys = [...buckets.keys()];
+  if (by === 'x') keys.sort((a, b) => Number(a) - Number(b));
+  else keys.sort((a, b) => String(a).localeCompare(String(b)));
+
+  return keys.map((key) => ({
+    key,
+    label: by === 'x' ? labels?.[Number(key)] ?? String(key) : String(key) || '(no group)',
+    stats: describe(/** @type {number[]} */ (buckets.get(key))),
+  }));
+}
