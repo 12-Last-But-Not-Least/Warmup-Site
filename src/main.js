@@ -1,4 +1,5 @@
 import { drawScatter } from './chart.js';
+import { exportFileName } from './export-name.js';
 
 const $ = id => document.getElementById(id);
 const number = (v, decimals = 2) => Number.isFinite(v) ? v.toLocaleString(undefined, { maximumFractionDigits: decimals }) : '—';
@@ -199,7 +200,7 @@ $('export').onclick = async () => {
     const result = await job.promise;
     if (cancelled) return;
     const url = URL.createObjectURL(result.blob), a = document.createElement('a');
-    a.href = url; a.download = `steps-sleep-${['first-file', 'second-file', 'matched-pairs'][options.source]}-${options.mode}.csv`; a.click();
+    a.href = url; a.download = exportFileName(current, options, result.rows); a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     status(`Exported ${number(result.rows, 0)} rows across all pages · ${options.mode === 'detail' ? 'cleaned observations' : 'summary statistics'}.`);
   } catch (e) { if (!cancelled) status(e.message, true); }

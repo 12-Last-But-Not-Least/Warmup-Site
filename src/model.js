@@ -47,6 +47,19 @@ function precisionOf(values) {
   }
   return best;
 }
+/** Short, stable id of the cleaned data (FNV-1a), so two versions of the same pair export under different names. */
+function fingerprintOf(recordLists) {
+  let hash = 0x811c9dc5;
+  for (const records of recordLists) {
+    for (const r of records) {
+      const text = `${r.group}\u0001${r.category}\u0001${r.y}\n`;
+      for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193);
+    }
+    hash = Math.imul(hash ^ 0x1e, 0x01000193); // file separator
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0').slice(0, 6);
+}
+
 export function createModel(a, b, names = ['First CSV', 'Second CSV']) {
   const canonical = new Map();
   for (const d of [a, b]) for (const s of d.series) if (!canonical.has(nameKey(s.group))) canonical.set(nameKey(s.group), s.group);
@@ -61,6 +74,7 @@ export function createModel(a, b, names = ['First CSV', 'Second CSV']) {
     return x === undefined ? [] : [{ group: r.group, category: r.category, order: r.order, x, y: r.y }];
   });
   const labels = [a.valueHeader || names[0], b.valueHeader || names[1]];
+  const fingerprint = fingerprintOf(original);
   const precision = original.map(rs => precisionOf(rs.map(r => r.y)));
   // Means, medians and SDs get one digit more than the raw values, within the cap.
   const statDecimals = precision.map(p => Math.min(MAX_DECIMALS, p + 1));
@@ -98,7 +112,7 @@ export function createModel(a, b, names = ['First CSV', 'Second CSV']) {
     });
     return {
       names, labels, groups: selectedGroups, aggregate, counts: visible.map(r => r.length), unfilteredCounts: [...original.map(r => r.length), paired.length],
-      stats: [describe(ra.map(r => r.y)), describe(rb.map(r => r.y))], fit, precision, statDecimals,
+      stats: [describe(ra.map(r => r.y)), describe(rb.map(r => r.y))], fit, precision, statDecimals, fingerprint,
       charts: chartInputs,
       warnings: [...a.warnings.map(w => `${names[0]}: ${w}`), ...b.warnings.map(w => `${names[1]}: ${w}`)].slice(0, 60),
     };

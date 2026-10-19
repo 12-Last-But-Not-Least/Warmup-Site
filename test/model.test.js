@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildPlotData } from '../src/data.js';
 import { createModel, generatedPair, extent, LIMITS } from '../src/model.js';
+import { exportFileName } from '../src/export-name.js';
 import Papa from '../src/vendor/papa.js';
 const model = (a, b) => createModel(buildPlotData(a), buildPlotData(b));
 
@@ -137,4 +138,17 @@ test('tables report one decimal count per column from the data precision, capped
   assert.deepEqual(m.table({ source: 1, mode: 'group' }).decimals, [null, 0, 3, 3, 3, 3, 3]);
   assert.deepEqual(m.table({ source: 2, mode: 'detail' }).decimals, [null, null, 3, 0]);
   assert.deepEqual(m.view().precision, [0, 3]);
+});
+
+test('export file names name both datasets, the view and a data fingerprint (M3)', () => {
+  const view = createModel(...generatedPair(5).map(t => buildPlotData(t))).view();
+  const name = exportFileName(view, { source: 2, mode: 'detail' }, 35);
+  assert.match(name, /^daily-steps_vs_sleep-hours__pairs-obs__35r__[0-9a-f]{6}\.csv$/);
+  assert.match(exportFileName(view, { source: 0, mode: 'group', query: 'per' }, 3), /__f1-bygrp-flt__3r__/);
+  assert.match(exportFileName(view, { source: 1, mode: 'category', excludedGroups: ['Person 00001'] }, 7), /__f2-bycat-flt__7r__/);
+  const same = createModel(...generatedPair(5).map(t => buildPlotData(t))).view();
+  const changed = createModel(...generatedPair(6).map(t => buildPlotData(t))).view();
+  assert.equal(same.fingerprint, view.fingerprint, 'identical data gives the same id');
+  assert.notEqual(changed.fingerprint, view.fingerprint, 'a different version of the pair gives a different id');
+  assert.match(exportFileName({ labels: ['  ', 'Été / 2026 (v2)'], fingerprint: 'abcdef' }, { source: 0, mode: 'detail' }, 1), /^data_vs_ete-2026-v2__f1-obs__1r__abcdef\.csv$/);
 });
