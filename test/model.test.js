@@ -129,3 +129,12 @@ test('sorting takes a column and a direction, including summary statistics (Y3)'
   const byCategory = col(m.table({ mode: 'category', sortBy: 'group' }).rows, 0);
   assert.deepEqual(byCategory, ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], 'default order follows the original categories');
 });
+
+test('tables report one decimal count per column from the data precision, capped at 3 (Y4)', () => {
+  const m = createModel(...generatedPair(30).map(t => buildPlotData(t)));   // steps: integers; sleep: 3 decimals
+  const steps = m.table({ source: 0, mode: 'group' });
+  assert.deepEqual(steps.decimals, [null, 0, 1, 1, 1, 0, 0]);
+  assert.deepEqual(m.table({ source: 1, mode: 'group' }).decimals, [null, 0, 3, 3, 3, 3, 3]);
+  assert.deepEqual(m.table({ source: 2, mode: 'detail' }).decimals, [null, null, 3, 0]);
+  assert.deepEqual(m.view().precision, [0, 3]);
+});

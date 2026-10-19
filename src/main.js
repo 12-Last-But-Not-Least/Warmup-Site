@@ -2,6 +2,8 @@ import { drawScatter } from './chart.js';
 
 const $ = id => document.getElementById(id);
 const number = (v, decimals = 2) => Number.isFinite(v) ? v.toLocaleString(undefined, { maximumFractionDigits: decimals }) : '—';
+// Exactly `decimals` places, so values in one column or card line up (Y4).
+const fixed = (v, decimals) => Number.isFinite(v) ? v.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) : '—';
 let active, candidate, task, request = 0, loadVersion = 0, viewVersion = 0, pageVersion = 0;
 let charts = [], current, page = 0, source = 0, filterTimer;
 let rendererKind = 'canvas';
@@ -80,13 +82,14 @@ function metric(label, value, detail) {
 }
 function paintView(preserve = false) {
   if (!current) return;
-  const { labels, stats, fit, counts, groups } = current;
+  const { labels, stats, fit, counts, groups, statDecimals = [2, 2] } = current;
+  const stat = (i, field) => fixed(stats[i][field], statDecimals[i]);
   $('dataset-label').textContent = `${number(groups, 0)} ${groups === 1 ? 'group' : 'groups'} · ${current.names.join(' + ')}`;
   $('metrics').replaceChildren(
     metric('MATCHED OBSERVATIONS', number(counts[2], 0), `${number(counts[0], 0)} first-file values · ${number(counts[1], 0)} second-file values`),
-    metric('PEARSON CORRELATION', number(fit.r, 3), 'Original values · correlation does not imply causation'),
-    metric(`MEAN · ${labels[0]}`, number(stats[0].mean), `Median ${number(stats[0].median)} · sample SD ${number(stats[0].sd)}`),
-    metric(`MEAN · ${labels[1]}`, number(stats[1].mean), `Median ${number(stats[1].median)} · sample SD ${number(stats[1].sd)}`),
+    metric('PEARSON CORRELATION', fixed(fit.r, 3), 'Original values · correlation does not imply causation'),
+    metric(`MEAN · ${labels[0]}`, stat(0, 'mean'), `Median ${stat(0, 'median')} · sample SD ${stat(0, 'sd')}`),
+    metric(`MEAN · ${labels[1]}`, stat(1, 'mean'), `Median ${stat(1, 'median')} · sample SD ${stat(1, 'sd')}`),
   );
   const warnings = current.warnings;
   $('quality').hidden = !warnings.length;
@@ -160,7 +163,7 @@ async function loadPage() {
     result.columns.forEach(c => { const th = document.createElement('th'); th.scope = 'col'; th.textContent = c; head.append(th); });
     $('data-table').tHead.replaceChildren(head);
     const fragment = document.createDocumentFragment();
-    result.rows.forEach(row => { const tr = document.createElement('tr'); row.forEach(value => { const td = document.createElement('td'); if (typeof value === 'number') td.className = 'num'; td.textContent = typeof value === 'number' ? number(value, 3) : value; tr.append(td); }); fragment.append(tr); });
+    result.rows.forEach(row => { const tr = document.createElement('tr'); row.forEach((value, i) => { const td = document.createElement('td'); if (typeof value === 'number') td.className = 'num'; td.textContent = typeof value === 'number' ? fixed(value, result.decimals?.[i] ?? 3) : value; tr.append(td); }); fragment.append(tr); });
     $('data-table').tBodies[0].replaceChildren(fragment);
     $('table-empty').hidden = result.total !== 0;
     const start = result.total ? page * result.size + 1 : 0, end = Math.min((page + 1) * result.size, result.total);

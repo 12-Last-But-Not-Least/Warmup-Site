@@ -34,6 +34,19 @@ function summaries(records, by) {
 // Summary sort keys map to describe() fields; NaN (e.g. SD with one value) sorts last.
 const SUMMARY_FIELDS = { value: 'mean', median: 'median', sd: 'sd', min: 'min', max: 'max' };
 const byNumber = (a, b) => (Number.isNaN(a) - Number.isNaN(b)) || a - b;
+
+// Decimal places a file's values are written with, capped at 3, so a table column can show
+// every value with the same number of decimals (e.g. integer steps, 3-decimal sleep hours).
+const MAX_DECIMALS = 3;
+function precisionOf(values) {
+  let best = 0;
+  for (const v of values) {
+    const text = String(v);
+    const decimals = text.includes('e') ? MAX_DECIMALS : text.includes('.') ? text.length - text.indexOf('.') - 1 : 0;
+    if (decimals > best && (best = Math.min(MAX_DECIMALS, decimals)) === MAX_DECIMALS) break;
+  }
+  return best;
+}
 export function createModel(a, b, names = ['First CSV', 'Second CSV']) {
   const canonical = new Map();
   for (const d of [a, b]) for (const s of d.series) if (!canonical.has(nameKey(s.group))) canonical.set(nameKey(s.group), s.group);
@@ -48,6 +61,9 @@ export function createModel(a, b, names = ['First CSV', 'Second CSV']) {
     return x === undefined ? [] : [{ group: r.group, category: r.category, order: r.order, x, y: r.y }];
   });
   const labels = [a.valueHeader || names[0], b.valueHeader || names[1]];
+  const precision = original.map(rs => precisionOf(rs.map(r => r.y)));
+  // Means, medians and SDs get one digit more than the raw values, within the cap.
+  const statDecimals = precision.map(p => Math.min(MAX_DECIMALS, p + 1));
   let filterKey = null, filtered, tables = new Map();
   function filter(query = '') {
     const key = nameKey(query);
@@ -82,7 +98,7 @@ export function createModel(a, b, names = ['First CSV', 'Second CSV']) {
     });
     return {
       names, labels, groups: selectedGroups, aggregate, counts: visible.map(r => r.length), unfilteredCounts: [...original.map(r => r.length), paired.length],
-      stats: [describe(ra.map(r => r.y)), describe(rb.map(r => r.y))], fit,
+      stats: [describe(ra.map(r => r.y)), describe(rb.map(r => r.y))], fit, precision, statDecimals,
       charts: chartInputs,
       warnings: [...a.warnings.map(w => `${names[0]}: ${w}`), ...b.warnings.map(w => `${names[1]}: ${w}`)].slice(0, 60),
     };
@@ -113,7 +129,12 @@ export function createModel(a, b, names = ['First CSV', 'Second CSV']) {
         const values = summaries(records, mode).sort((a, b) => dir * key(a, b) || a.label.localeCompare(b.label));
         rows = values.map(s => [s.label, s.n, s.mean, s.median, s.sd, s.min, s.max]);
       }
-      tables.set(cacheKey, { columns, rows, note: pairedSource && mode !== 'detail' ? `Summaries describe ${labels[0]} (Y) within matched pairs.` : '' });
+      // Paired summaries describe the first file (Y), so they use its precision.
+      const valueFile = pairedSource ? 0 : source;
+      const decimals = mode === 'detail'
+        ? [null, null, ...(pairedSource ? [precision[1], precision[0]] : [precision[source]])]
+        : [null, 0, statDecimals[valueFile], statDecimals[valueFile], statDecimals[valueFile], precision[valueFile], precision[valueFile]];
+      tables.set(cacheKey, { columns, rows, decimals, note: pairedSource && mode !== 'detail' ? `Summaries describe ${labels[0]} (Y) within matched pairs.` : '' });
       if (tables.size > 8) tables.delete(tables.keys().next().value);
     }
     return tables.get(cacheKey);
