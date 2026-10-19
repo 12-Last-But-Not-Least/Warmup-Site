@@ -109,6 +109,10 @@ export function createSvgRenderer() {
     }
 
     ring = svgEl('circle', { class: 'hover-ring', r: POINT_R + 4, visibility: 'hidden' }, data);
+
+    if (scene.cornerLabel) {
+      svgEl('text', { x: right - 8, y: top + 16, class: 'corner-label', 'text-anchor': 'end' }, svg).textContent = scene.cornerLabel;
+    }
     applyHighlight();
   }
 
