@@ -10,6 +10,7 @@
   --grid: #e1e0d9;
   --axis: #c3c2b7;
   --border: rgba(11, 11, 11, 0.10);
+  --settings-h: 2.75rem; /* sticky chart-settings bar; rem so it grows with text size */
 
   --series-1: #2a78d6; /* blue */
   --series-2: #eb6834; /* orange */
@@ -163,7 +164,22 @@ h1 { margin: 0 0 4px; font-size: 1.6rem; }
 
 /* Canvas/SVG choice drawn as one segmented control: the two buttons share a
    border, and the pressed one is filled so the state doesn't rely on weight alone. */
-.renderer-toggle { display: flex; align-items: center; margin-bottom: 16px; color: var(--text-secondary); }
+/* Sits at the top of #charts and stays in view while scrolling through them. */
+.chart-settings {
+  position: sticky;
+  top: 0;
+  z-index: 2; /* above .scatter-tooltip (z-index 1) */
+  display: flex;
+  align-items: center;
+  min-height: var(--settings-h);
+  padding: 6px 0;
+  background: var(--page);
+}
+/* Keep keyboard-focused chart controls from landing under the sticky bar. */
+html:has(#charts:not([hidden])) { scroll-padding-top: calc(var(--settings-h) + 8px); }
+.chart-settings-note { margin: 0 0 12px; font-size: 0.85rem; color: var(--text-secondary); }
+
+.renderer-toggle { display: flex; align-items: center; white-space: nowrap; color: var(--text-secondary); }
 .renderer-toggle > span { margin-right: 8px; }
 .renderer-toggle button {
   font: inherit;
