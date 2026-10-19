@@ -148,7 +148,7 @@ for (const button of document.querySelectorAll('[data-renderer]')) button.onclic
 $('show-means').onchange = () => current && paintCharts();
 $('show-trend').onchange = () => current && paintCharts();
 
-function tableOptions() { return { source, mode: $('table-mode').value, sort: $('table-sort').value, query: $('group-filter').value, excludedGroups: [...hiddenBySource[source]], size: Number($('page-size').value), page }; }
+function tableOptions() { return { source, mode: $('table-mode').value, sortBy: $('table-sort').value, direction: $('table-direction').value, query: $('group-filter').value, excludedGroups: [...hiddenBySource[source]], size: Number($('page-size').value), page }; }
 async function loadPage() {
   if (!active) return;
   const version = ++pageVersion, client = active;
@@ -176,7 +176,14 @@ function selectSource(index) {
   loadPage();
 }
 for (const b of document.querySelectorAll('[data-source]')) b.onclick = () => selectSource(Number(b.dataset.source));
-for (const id of ['table-mode', 'table-sort', 'page-size']) $(id).onchange = () => { page = 0; loadPage(); };
+// Median, SD, Min and Max only exist for summaries; detail rows fall back to value.
+function syncSortOptions() {
+  const detail = $('table-mode').value === 'detail';
+  for (const option of $('table-sort').querySelectorAll('[data-summary]')) option.hidden = option.disabled = detail;
+  if ($('table-sort').selectedOptions[0]?.disabled) $('table-sort').value = 'value';
+}
+syncSortOptions();
+for (const id of ['table-mode', 'table-sort', 'table-direction', 'page-size']) $(id).onchange = () => { syncSortOptions(); page = 0; loadPage(); };
 $('prev').onclick = () => { page--; loadPage(); };
 $('next').onclick = () => { page++; loadPage(); };
 $('export').onclick = async () => {

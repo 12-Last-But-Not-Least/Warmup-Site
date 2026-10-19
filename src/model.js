@@ -23,22 +23,29 @@ function summaries(records, by) {
   const buckets = new Map();
   for (const r of records) {
     const key = by === 'group' ? r.group : r.category;
-    if (!buckets.has(key)) buckets.set(key, []);
-    buckets.get(key).push(r.y);
+    if (!buckets.has(key)) buckets.set(key, { order: r.order, values: [] });
+    const bucket = buckets.get(key);
+    bucket.order = Math.min(bucket.order, r.order);
+    bucket.values.push(r.y);
   }
-  return [...buckets].map(([label, values]) => ({ label, ...describe(values) }));
+  return [...buckets].map(([label, { order, values }]) => ({ label, order, ...describe(values) }));
 }
+
+// Summary sort keys map to describe() fields; NaN (e.g. SD with one value) sorts last.
+const SUMMARY_FIELDS = { value: 'mean', median: 'median', sd: 'sd', min: 'min', max: 'max' };
+const byNumber = (a, b) => (Number.isNaN(a) - Number.isNaN(b)) || a - b;
 export function createModel(a, b, names = ['First CSV', 'Second CSV']) {
   const canonical = new Map();
   for (const d of [a, b]) for (const s of d.series) if (!canonical.has(nameKey(s.group))) canonical.set(nameKey(s.group), s.group);
   const groups = [...canonical.values()].sort((x, y) => x.localeCompare(y));
   const groupSlots = Object.fromEntries(groups.map((g, i) => [g, i]));
-  const flatten = d => d.series.flatMap(s => s.points.map(([x, y]) => ({ group: canonical.get(nameKey(s.group)), category: d.xTickLabels?.[x] ?? String(x), x, y })));
+  const flatten = d => d.series.flatMap(s => s.points.map(([x, y]) => ({ group: canonical.get(nameKey(s.group)), category: d.xTickLabels?.[x] ?? String(x), order: x, x, y })));
   const original = [flatten(a), flatten(b)];
   const bIndex = new Map(original[1].map(r => [JSON.stringify([nameKey(r.group), r.category]), r.y]));
   const paired = original[0].flatMap(r => {
     const x = bIndex.get(JSON.stringify([nameKey(r.group), r.category]));
-    return x === undefined ? [] : [{ group: r.group, category: r.category, x, y: r.y }];
+    // `x` holds the second file's value here, so the category position travels separately as `order`.
+    return x === undefined ? [] : [{ group: r.group, category: r.category, order: r.order, x, y: r.y }];
   });
   const labels = [a.valueHeader || names[0], b.valueHeader || names[1]];
   let filterKey = null, filtered, tables = new Map();
@@ -80,25 +87,30 @@ export function createModel(a, b, names = ['First CSV', 'Second CSV']) {
       warnings: [...a.warnings.map(w => `${names[0]}: ${w}`), ...b.warnings.map(w => `${names[1]}: ${w}`)].slice(0, 60),
     };
   }
-  function table({ source = 0, mode = 'detail', sort = 'group', query = '', excludedGroups = [] } = {}) {
+  function table({ source = 0, mode = 'detail', sortBy = 'group', direction = 'asc', query = '', excludedGroups = [] } = {}) {
     filter(query);
     const excluded = new Set(excludedGroups);
-    const cacheKey = JSON.stringify([source, mode, sort, [...excluded].sort()]);
+    const dir = direction === 'desc' ? -1 : 1;
+    const cacheKey = JSON.stringify([source, mode, sortBy, dir, [...excluded].sort()]);
     if (!tables.has(cacheKey)) {
       const pairedSource = source === 2;
       const records = (filtered[source] ?? []).filter(r => !excluded.has(r.group));
       const columns = mode === 'detail' ? ['Group', 'Category', ...(pairedSource ? [labels[1], labels[0]] : [labels[source]])] : [mode === 'group' ? 'Group' : 'Category', 'n', 'Mean', 'Median', 'Sample SD', 'Min', 'Max'];
       let rows;
       if (mode === 'detail') {
-        const sorted = [...records];
-        if (sort === 'value' || sort === 'value-desc') sorted.sort((a, b) => (a.y - b.y) * (sort === 'value' ? 1 : -1));
-        else if (sort === 'category') sorted.sort((a, b) => a.category.localeCompare(b.category) || a.group.localeCompare(b.group));
-        else sorted.sort((a, b) => a.group.localeCompare(b.group) || a.x - b.x);
+        // Summary-only keys (median, sd, ...) have no per-observation meaning, so they sort by value.
+        const key = sortBy === 'group' ? (a, b) => a.group.localeCompare(b.group)
+          : sortBy === 'category' ? (a, b) => a.category.localeCompare(b.category)
+          : (a, b) => a.y - b.y;
+        const sorted = [...records].sort((a, b) => dir * key(a, b) || a.group.localeCompare(b.group) || a.order - b.order);
         rows = sorted.map(r => [r.group, r.category, ...(pairedSource ? [r.x, r.y] : [r.y])]);
       } else {
-        const values = summaries(records, mode);
-        if (sort === 'value' || sort === 'value-desc') values.sort((a, b) => (a.mean - b.mean) * (sort === 'value' ? 1 : -1));
-        else if (mode === 'group' || sort === 'category') values.sort((a, b) => a.label.localeCompare(b.label));
+        const field = SUMMARY_FIELDS[sortBy];
+        // "Group / original category order" keeps categories in file order; "Category name" is alphabetical.
+        const key = field ? (a, b) => byNumber(a[field], b[field])
+          : mode === 'category' && sortBy !== 'category' ? (a, b) => a.order - b.order
+          : (a, b) => a.label.localeCompare(b.label);
+        const values = summaries(records, mode).sort((a, b) => dir * key(a, b) || a.label.localeCompare(b.label));
         rows = values.map(s => [s.label, s.n, s.mean, s.median, s.sd, s.min, s.max]);
       }
       tables.set(cacheKey, { columns, rows, note: pairedSource && mode !== 'detail' ? `Summaries describe ${labels[0]} (Y) within matched pairs.` : '' });

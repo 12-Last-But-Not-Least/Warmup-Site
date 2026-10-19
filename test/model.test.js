@@ -25,7 +25,7 @@ test('pagination is capped; sorting is global before slicing; export table inclu
   assert.equal(m.page({ mode:'detail', size:100 }).rows.length,100);
   assert.equal(m.page({ mode:'detail', page:139 }).rows.length,50);
   assert.equal(m.table({ mode:'detail' }).rows.length,7000);
-  const sorted = m.table({ mode:'detail', sort:'value' }).rows;
+  const sorted = m.table({ mode:'detail', sortBy:'value' }).rows;
   assert.ok(sorted.every((r,i)=>i===0||sorted[i-1][2]<=r[2]));
   assert.equal(m.view().fit.r,v.fit.r);
 });
@@ -105,4 +105,27 @@ test('the scatter carries a model-computed fit only when its points are a drawin
   const large = createModel(...generatedPair(1000).map(t => buildPlotData(t))).view().charts[2];
   assert.ok(large.points.length < large.total);
   assert.equal(large.statsOverride.n, large.total, 'sampled charts keep the full-data fit');
+});
+
+test('matched pairs keep original category order within each group (M1)', () => {
+  const m = createModel(...generatedPair(3).map(t => buildPlotData(t)));
+  const rows = m.table({ source: 2, mode: 'detail', sortBy: 'group' }).rows;
+  const first = rows.filter(r => r[0] === rows[0][0]).map(r => r[1]);
+  assert.deepEqual(first, ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
+});
+
+test('sorting takes a column and a direction, including summary statistics (Y3)', () => {
+  const m = createModel(...generatedPair(30).map(t => buildPlotData(t)));
+  const col = (rows, i) => rows.map(r => r[i]);
+  const ascending = values => values.every((v, i) => i === 0 || values[i - 1] <= v);
+  const descending = values => values.every((v, i) => i === 0 || values[i - 1] >= v);
+  assert.ok(descending(col(m.table({ mode: 'detail', sortBy: 'value', direction: 'desc' }).rows, 2)));
+  const groupsDesc = col(m.table({ mode: 'detail', sortBy: 'group', direction: 'desc' }).rows, 0);
+  assert.ok(groupsDesc.every((g, i) => i === 0 || groupsDesc[i - 1].localeCompare(g) >= 0));
+  const summary = m.table({ mode: 'group', sortBy: 'median' });
+  const median = summary.columns.indexOf('Median'), sd = summary.columns.indexOf('Sample SD');
+  assert.ok(ascending(col(summary.rows, median)));
+  assert.ok(descending(col(m.table({ mode: 'group', sortBy: 'sd', direction: 'desc' }).rows, sd)));
+  const byCategory = col(m.table({ mode: 'category', sortBy: 'group' }).rows, 0);
+  assert.deepEqual(byCategory, ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], 'default order follows the original categories');
 });
