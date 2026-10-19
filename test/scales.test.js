@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeScale, logTicks, formatLogTick, paddedExtent, isPlottable, toT, fromT, niceTicks } from '../src/scales.js';
+import { makeScale, logTicks, formatLogTick, paddedExtent, isPlottable, toT, fromT, niceTicks, categoryLabelStep } from '../src/scales.js';
 import { computeStats, setStatsProvider } from '../src/stats.js';
 
 const close = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} !~ ${b}`);
@@ -93,4 +93,19 @@ test('stats provider can be swapped and restored', () => {
   assert.equal(computeStats(pts).n, 9);
   setStatsProvider();
   assert.equal(computeStats(pts).n, 3);
+});
+
+test('categoryLabelStep keeps every label when they fit', () => {
+  assert.equal(categoryLabelStep(100, 60), 1);
+});
+
+test('categoryLabelStep skips labels that would overlap', () => {
+  // 7 weekdays on a phone: ~30px per day, "Wednesday" ~66px wide
+  assert.equal(categoryLabelStep(30, 66), 3);
+  assert.equal(categoryLabelStep(50, 42, 10), 2);
+});
+
+test('categoryLabelStep shows every label for a degenerate axis', () => {
+  assert.equal(categoryLabelStep(0, 66), 1);
+  assert.equal(categoryLabelStep(NaN, 66), 1);
 });
