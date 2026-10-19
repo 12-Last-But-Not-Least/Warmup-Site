@@ -135,7 +135,9 @@ function paintCharts(preserve = true) {
     charts.push(handle);
     const tableLink = document.createElement('button'); tableLink.type = 'button'; tableLink.className = 'chart-table-link'; tableLink.textContent = 'Show data table';
     tableLink.onclick = () => { selectSource(i); $('table-details').open = true; $('table-details').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
-    $(ids[i]).insertBefore(tableLink, $(ids[i]).querySelector('.chart-image-actions'));
+    // Same row as Copy image / Save PNG: table button on the left, image buttons on the right (6b).
+    const imageActions = $(ids[i]).querySelector('.chart-image-actions');
+    if (imageActions) imageActions.prepend(tableLink); else $(ids[i]).append(tableLink);
   });
 }
 async function updateView(preserve = false) {

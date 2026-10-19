@@ -375,7 +375,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .table-footer { font-size: .78rem; color: var(--text-secondary); }
 .pager { display: flex; align-items: center; gap: 12px; }
 .chart-expanded .chart-image-actions, .scatter:fullscreen .chart-image-actions { padding-bottom: 8px; }
-@media(max-width: 760px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } main { padding: 20px 12px; } .scatter-toolbar { justify-content: flex-start; } }
+@media(max-width: 760px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } main { padding: 20px 12px; } }
 
 .chart-settings, .chart-settings-note { max-width: 960px; margin-left: auto; margin-right: auto; }
 
@@ -383,3 +383,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
    screens, where the bar has no room and charts already fill the available width. */
 .chart-settings .plot-width { margin-left: auto; }
 @media (max-width: 600px) { .chart-settings .plot-width { display: none; } }
+
+/* Chart toolbar: hint on the left, controls packed to the right, so a wrapped row keeps
+   Reset view and Fullscreen together at the right edge instead of stranding Fullscreen (6a).
+   Empty status messages take no slot until they have something to say. */
+.scatter-toolbar { justify-content: flex-end; }
+.scatter-toolbar .scatter-hint { margin-right: auto; }
+.chart-layout-status:empty, .chart-image-status:empty { display: none; }
+/* "Show data table" shares the image-actions row, pinned to its left end (6b). */
+.chart-image-actions .chart-table-link { margin: 0 auto 0 0; }
+.chart-image-buttons { display: inline-flex; gap: 8px; }

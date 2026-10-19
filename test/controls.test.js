@@ -237,7 +237,8 @@ test('original empty state, examples and automatic two-file loading coordinate w
   assert.equal($('table-details').open,true);
   assert.equal(document.querySelector('[data-source="2"]').getAttribute('aria-pressed'),'true');
   for (const id of ['chart-a','chart-b','chart-scatter']) {
-    assert.deepEqual([...$(id).querySelectorAll('.chart-image-actions button')].map(b=>b.textContent),['Copy image','Save PNG']);
+    assert.deepEqual([...$(id).querySelectorAll('.chart-image-actions button:not(.chart-table-link)')].map(b=>b.textContent),['Copy image','Save PNG']);
+    assert.equal($(id).querySelector('.chart-image-actions').firstElementChild, $(id).querySelector('.chart-table-link'), 'table button shares the image-actions row (6b)');
   }
   // Y6: one global plot width in the pinned bar instead of one per chart.
   assert.equal(document.querySelectorAll('#charts .scatter .chart-width select').length, 0);
