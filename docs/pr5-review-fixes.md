@@ -16,7 +16,7 @@ PR #5 targets PR #4's branch. Goals come from the PR #4 review: **Y** = reviewer
 | Y2 | CSV export covers all filtered rows, which isn't obvious | **Text only:** the existing export note now says Export CSV saves all matching rows across every page, not only the rows shown. Same element and style; button label unchanged | `ae42baf` |
 | M3 | Export filename hard-coded to `steps-sleep-…` | `<A>_vs_<B>__<view>__<rows>r__<id>.csv` — dataset names from header labels, view codes (`f1`/`f2`/`pairs` + `obs`/`bycat`/`bygrp`, `-flt` when filtered or legend groups hidden), row count, 6-character fingerprint of the cleaned data | `ae42baf` |
 | M2 | Toggling a legend item rebuilds the charts and drops keyboard focus | Remember chart + group when the toggle came from a focused legend button; only the redraw started by that toggle focuses the group's new button (no scroll). Later updates, a superseded redraw, a group off the current legend page, or a toggle not from the focused button leave focus alone | `228d4a5` |
-| Y6 | Plot width is set per chart only | "Width for all charts" at the right of the pinned bar sets every chart; each chart keeps its own "Maximum width" to override just that chart (kept across redraws). Both hidden below 600px | `0931323`, `9e7eccc` |
+| Y6 | Plot width is set per chart only | "Width for all charts" at the right of the pinned bar sets every chart; each chart keeps its own "Maximum width" to override just that chart (kept across redraws); the global control shows "Mixed (set per chart)" when they differ, so picking any size applies to all. Both hidden below 600px | `0931323`, `9e7eccc`, `0c41af8` |
 | Y7-6a | Narrow screens: Fullscreen lands mid-row when the toolbar wraps | Hint left, controls packed right, so a wrapped row keeps Reset view and Fullscreen together at the right edge; empty status spans take no slot | `6242413` |
 | Y7-6b | "Show data table" and Copy image / Save PNG sit on different rows | Table button is the first item of the image-actions row (left); Copy image / Save PNG grouped on the right so they wrap together | `6242413` |
 | Y5 | The filter row (search, line display, means/fit) scrolls away | **CSS only, ≥ 1024px:** the filter row pins at the top and the Canvas/SVG bar pins directly below it; unpinned below 1024px | `80d9d25` |
@@ -30,6 +30,7 @@ Commits `6242413` and `80d9d25` are kept separate so each can be dropped on its 
 - Y5: option (a), CSS-only pinning on wide screens, as its own commit.
 - Y6 (after PR review): keep per-chart width choices alongside the global control.
 - Y3 (after PR review): sort matched pairs by either value column, with stable option keys.
+- Y6 (after PR review): the global control shows "Mixed" when charts differ, so re-picking the same size still applies to all.
 - Y8: statistics stay out of the pinned bars — confirmed: only the filter row and the Canvas/SVG bar are pinned.
 
 ## Deviations from the plan
