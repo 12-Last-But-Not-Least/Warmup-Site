@@ -62,9 +62,7 @@ export { linearScale, niceStep, niceTicks, logTicks } from './scales.js';
  * @property {boolean} [controls]        show the scale selects in the chart toolbar (default true)
  * @property {(groups: string[]) => void} [onVisibilityChange] request a full-data worker recomputation
  * @property {{x: [number,number], y: [number,number]}} [view]
- * @property {string} [maxWidth]
- * @property {boolean} [widthControl]  show this chart's own width select (default true); off when the page sets one width for all
- * @property {number} [legendPage]
+ * @property {string} [maxWidth] * @property {number} [legendPage]
  * @property {string} [legendQuery]
  *
  * @typedef {Object} ChartHandle
@@ -705,7 +703,7 @@ export function drawScatter(container, input, options = {}) {
     render();
   });
   observer.observe(plot);
-  const layout = addLayoutControls(container, () => { hideTooltip(); render(); }, options.maxWidth ?? '960', { widthControl: options.widthControl ?? true });
+  const layout = addLayoutControls(container, () => { hideTooltip(); render(); }, options.maxWidth ?? '960');
   const removeImages = addImageActions(container);
   const resize = () => { hideTooltip(); render(); };
   window.addEventListener('resize', resize);

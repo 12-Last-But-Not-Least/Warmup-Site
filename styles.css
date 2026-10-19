@@ -379,10 +379,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 
 .chart-settings, .chart-settings-note { max-width: 960px; margin-left: auto; margin-right: auto; }
 
-/* One plot width for every chart, at the right end of the pinned bar (Y6). Hidden on narrow
-   screens, where the bar has no room and charts already fill the available width. */
+/* "Width for all charts" sits at the right end of the pinned bar; each chart keeps its own
+   "Maximum width" to override it (Y6). Both are hidden on narrow screens, where there is no room
+   and every option already means "fill the screen". */
 .chart-settings .plot-width { margin-left: auto; }
-@media (max-width: 600px) { .chart-settings .plot-width { display: none; } }
+@media (max-width: 600px) { .chart-width { display: none; } }
 
 /* Chart toolbar: hint on the left, controls packed to the right, so a wrapped row keeps
    Reset view and Fullscreen together at the right edge instead of stranding Fullscreen (6a).

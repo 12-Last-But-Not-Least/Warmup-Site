@@ -257,13 +257,21 @@ test('original empty state, examples and automatic two-file loading coordinate w
     assert.deepEqual([...$(id).querySelectorAll('.chart-image-actions button:not(.chart-table-link)')].map(b=>b.textContent),['Copy image','Save PNG']);
     assert.equal($(id).querySelector('.chart-image-actions').firstElementChild, $(id).querySelector('.chart-table-link'), 'table button shares the image-actions row (6b)');
   }
-  // Y6: one global plot width in the pinned bar instead of one per chart.
-  assert.equal(document.querySelectorAll('#charts .scatter .chart-width select').length, 0);
+  // Y6: a global width in the pinned bar sets every chart; each chart can still override its own.
+  const ownWidth = id => $(id).querySelector('.chart-width select');
   assert.ok($('plot-width').closest('.chart-settings'));
+  for (const id of ['chart-a','chart-b','chart-scatter']) assert.ok(ownWidth(id), `${id} keeps its own width select`);
   $('plot-width').value = '640'; change($('plot-width'));
-  for (const id of ['chart-a','chart-b','chart-scatter']) assert.equal($(id).style.maxWidth, '640px');
+  for (const id of ['chart-a','chart-b','chart-scatter']) { assert.equal($(id).style.maxWidth, '640px'); assert.equal(ownWidth(id).value, '640'); }
+  ownWidth('chart-b').value = '800'; change(ownWidth('chart-b'));
+  assert.deepEqual(['chart-a','chart-b','chart-scatter'].map(id => $(id).style.maxWidth), ['640px','800px','640px']);
+  $('chart-a').querySelector('.legend-item').click();
+  await until(() => $('line-a-note').textContent.includes('hidden by'));
+  assert.equal($('chart-b').style.maxWidth, '800px', 'a per-chart choice survives redraws');
+  $('chart-a').querySelector('.legend-item').click();
+  await until(() => !$('line-a-note').textContent.includes('hidden by'));
   $('plot-width').value = ''; change($('plot-width'));
-  for (const id of ['chart-a','chart-b','chart-scatter']) assert.equal($(id).style.maxWidth, 'none');
+  for (const id of ['chart-a','chart-b','chart-scatter']) assert.equal($(id).style.maxWidth, 'none', 'the global choice resets every chart');
   assert.equal(observers.size,3);
   assert.equal(themeListeners.size,0);
   dom.window.close();

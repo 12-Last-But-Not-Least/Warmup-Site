@@ -100,7 +100,8 @@ function paintView(preserve = false) {
   $('scope-note').textContent = 'Click a group name in a chart to hide or restore that group in that chart. File means follow each line chart; correlation follows the comparison chart. Statistics use all visible groups in original units. Drawing samples, pagination and log axes do not change the analysis sample.';
   paintCharts(preserve);
 }
-function paintCharts(preserve = true) {
+// widthOverride: set by the global width control; otherwise each chart keeps its own width choice.
+function paintCharts(preserve = true, widthOverride) {
   const states = charts.map(h => {
     const state = h.getState();
     return preserve ? state : { maxWidth: state.maxWidth };
@@ -118,7 +119,7 @@ function paintCharts(preserve = true) {
     const fullNote = note;
     const handle = drawScatter($(ids[i]), { ...input, showMeans: $('show-means').checked && i < 2, showTrend: i === 2 && $('show-trend').checked }, {
       ...states[i], renderer, xScale: chartSettings[i].x, yScale: chartSettings[i].y,
-      maxWidth: $('plot-width').value, widthControl: false, // one width for all charts, set in the pinned bar (Y6)
+      maxWidth: widthOverride ?? states[i]?.maxWidth ?? $('plot-width').value, // Y6: global default, per-chart override
       onVisibilityChange(hidden) {
         // The redraw replaces the legend, so remember the toggled item if it had focus (M2).
         const focused = document.activeElement;
@@ -165,7 +166,7 @@ for (const button of document.querySelectorAll('[data-renderer]')) button.onclic
 };
 $('show-means').onchange = () => current && paintCharts();
 $('show-trend').onchange = () => current && paintCharts();
-$('plot-width').onchange = () => current && paintCharts();
+$('plot-width').onchange = () => current && paintCharts(true, $('plot-width').value);
 
 function tableOptions() { return { source, mode: $('table-mode').value, sortBy: $('table-sort').value, direction: $('table-direction').value, query: $('group-filter').value, excludedGroups: [...hiddenBySource[source]], size: Number($('page-size').value), page }; }
 async function loadPage() {
