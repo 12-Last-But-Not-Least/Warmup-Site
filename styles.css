@@ -204,6 +204,7 @@ html:has(#charts:not([hidden])) { scroll-padding-top: calc(var(--settings-h) + 8
   color: var(--surface);
   background: var(--text-primary);
   border-color: var(--text-primary);
+  font-weight: 600; /* still visible when forced-colors (high contrast) replaces the fill */
 }
 .renderer-toggle button:focus-visible {
   position: relative; /* keep the ring above the neighbouring segment */
