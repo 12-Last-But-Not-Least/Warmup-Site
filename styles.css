@@ -161,17 +161,31 @@ h1 { margin: 0 0 4px; font-size: 1.6rem; }
   border-radius: 4px;
 }
 
-.renderer-toggle { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; color: var(--text-secondary); }
+/* Canvas/SVG choice drawn as one segmented control: the two buttons share a
+   border, and the pressed one is filled so the state doesn't rely on weight alone. */
+.renderer-toggle { display: flex; align-items: center; margin-bottom: 16px; color: var(--text-secondary); }
+.renderer-toggle > span { margin-right: 8px; }
 .renderer-toggle button {
   font: inherit;
   color: var(--text-secondary);
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 2px 10px;
+  border: 1px solid var(--axis);
+  padding: 2px 12px;
   cursor: pointer;
 }
-.renderer-toggle button[aria-pressed="true"] { color: var(--text-primary); border-color: var(--text-muted); font-weight: 600; }
+.renderer-toggle button:first-of-type { border-radius: 6px 0 0 6px; }
+.renderer-toggle button:last-of-type { border-radius: 0 6px 6px 0; margin-left: -1px; }
+.renderer-toggle button:hover { color: var(--text-primary); }
+.renderer-toggle button[aria-pressed="true"] {
+  color: var(--surface);
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+}
+.renderer-toggle button:focus-visible {
+  position: relative; /* keep the ring above the neighbouring segment */
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
 
 /* ---------- SVG marks ---------- */
 .grid line { stroke: var(--grid); stroke-width: 1; }
