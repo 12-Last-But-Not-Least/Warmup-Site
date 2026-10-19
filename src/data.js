@@ -1,4 +1,4 @@
-import Papa from 'papaparse';
+import Papa from './vendor/papa.js';
 
 const numericPattern = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
@@ -73,7 +73,11 @@ export function parseCsv(text) {
  *   xTickLabels?: Record<number, string>, warnings: string[]}}
  */
 export function buildPlotData(text, options) {
-  const { columns, rows, recordNumbers, warnings } = parseCsv(text);
+  return buildFromParsed(parseCsv(text), options);
+}
+
+export function buildFromParsed(parsed, options) {
+  const { columns, rows, recordNumbers, warnings } = parsed;
   const { xColumns = columns.slice(1), xType = 'category' } = options ?? {};
   const result = {
     valueHeader: columns[0] ?? null,

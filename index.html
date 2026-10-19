@@ -1,62 +1,59 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Steps &amp; Sleep</title>
-  <link rel="stylesheet" href="styles.css">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Steps &amp; Sleep</title><link rel="icon" href="data:,"><link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main>
-    <header>
-      <h1>Steps &amp; Sleep</h1>
-      <p id="status" class="subtitle">Upload two CSV files to see the charts. Each file gets its own line chart, and the third chart plots one against the other.</p>
-    </header>
-
-    <section class="card upload" aria-label="Upload data">
-      <label class="upload-field">
-        <span>First CSV (e.g. steps)</span>
-        <input id="file-a" type="file" accept=".csv,text/csv">
-      </label>
-      <label class="upload-field">
-        <span>Second CSV (e.g. sleep)</span>
-        <input id="file-b" type="file" accept=".csv,text/csv">
-      </label>
-      <div class="examples">
-        <span>Or try an example:</span>
-        <button type="button" data-a="data/DATA - Step Count.csv" data-b="data/DATA - Hours of Sleep.csv">Steps &amp; sleep</button>
-        <button type="button" data-a="data/examples/quiz_scores.csv" data-b="data/examples/study_hours.csv">Study hours &amp; quiz scores</button>
-        <button type="button" data-a="data/examples/ice_cream_sales.csv" data-b="data/examples/temperature.csv">Temperature &amp; ice cream</button>
-        <button type="button" data-a="data/examples/sleep_roommates.csv" data-b="data/examples/screen_time.csv">Screen time &amp; sleep</button>
-        <!-- testing button -->
-        <button type="button" data-a="data/testcases/duplicate-names-sleep.csv" data-b="data/testcases/duplicate-names-steps.csv">Sleep &amp; Steps</button> 
-        <!-- -->
-      </div>
-      <ul id="warnings" class="warnings" hidden></ul>
-    </section>
-
-    <!-- Hidden until both files load successfully. -->
-    <div id="charts" hidden>
-      <!-- Sticky, so the renderer can be switched while looking at any of the charts. -->
-      <div class="chart-settings">
-        <div class="renderer-toggle" role="group" aria-label="Chart renderer">
-          <span>Render charts with:</span>
-          <button type="button" id="renderer-canvas" data-renderer="canvas" aria-pressed="true">Canvas</button>
-          <button type="button" id="renderer-svg" data-renderer="svg" aria-pressed="false">SVG</button>
-        </div>
-      </div>
-      <p class="chart-settings-note">Same charts, drawn two ways: Canvas paints pixels, SVG builds shapes you can inspect.</p>
-      <section id="chart-a" class="card"></section>
-      <section id="chart-b" class="card"></section>
-      <section id="chart-scatter" class="card"></section>
+<main>
+  <header><h1>Steps &amp; Sleep</h1><p class="subtitle" id="status" role="status" aria-live="polite">Upload two CSV files to see the charts. Each file gets its own line chart, and the third chart plots one against the other.</p></header>
+  <section class="card upload" aria-label="Upload data">
+    <div class="upload-field"><span>First CSV (e.g. steps)</span><label class="file-picker">Choose first CSV<input id="file-a" class="visually-hidden" aria-label="First CSV" type="file" accept=".csv,text/csv"></label><span id="file-a-name" class="file-name">No file selected</span></div>
+    <div class="upload-field"><span>Second CSV (e.g. sleep)</span><label class="file-picker">Choose second CSV<input id="file-b" class="visually-hidden" aria-label="Second CSV" type="file" accept=".csv,text/csv"></label><span id="file-b-name" class="file-name">No file selected</span></div>
+    <div class="examples"><span>Or try an example:</span>
+      <button type="button" data-a="data/DATA - Step Count.csv" data-b="data/DATA - Hours of Sleep.csv">Steps &amp; sleep</button>
+      <button type="button" data-a="data/examples/quiz_scores.csv" data-b="data/examples/study_hours.csv">Study hours &amp; quiz scores</button>
+      <button type="button" data-a="data/examples/ice_cream_sales.csv" data-b="data/examples/temperature.csv">Temperature &amp; ice cream</button>
+      <button type="button" data-a="data/examples/sleep_roommates.csv" data-b="data/examples/screen_time.csv">Screen time &amp; sleep</button>
+      <button type="button" data-a="data/testcases/duplicate-names-sleep.csv" data-b="data/testcases/duplicate-names-steps.csv">Sleep &amp; Steps</button>
     </div>
-  </main>
-
-  <!-- src/data.js imports 'papaparse' by name; this tells the browser where to find it (no build step). -->
-  <script type="importmap">
-    { "imports": { "papaparse": "https://cdn.jsdelivr.net/npm/papaparse@5.7.0/+esm" } }
-  </script>
-  <!-- ES modules don't load from file:// — run `npx serve` in this folder. -->
-  <script type="module" src="src/main.js"></script>
-</body>
-</html>
+    <p class="import-hint">Files load once both are selected. Up to 5 MiB per file, 20,000 records per file, 512 value columns, and 250,000 cells across both files. Processing stays in your browser.</p>
+    <div id="task" class="task" hidden><span id="task-message" role="status" aria-live="polite"></span><button id="cancel-task" type="button">Cancel</button></div>
+    <details id="quality" class="quality" hidden><summary id="quality-title">Data quality notes</summary><ul id="warnings"></ul></details>
+  </section>
+  <div id="charts" hidden>
+    <p id="dataset-label"></p><div id="metrics" class="metrics"></div>
+    <section class="card settings" aria-label="Display configuration">
+      <label class="control">Filter groups<input id="group-filter" type="search" placeholder="Search a person or group" autocomplete="off"></label>
+      <label class="control">Line display<select id="overview"><option value="auto">Auto</option><option value="overview">Category means</option><option value="individual">Individual groups (up to 20)</option></select></label>
+      <label class="check"><input id="show-means" type="checkbox">Mean markers</label><label class="check"><input id="show-trend" type="checkbox" checked>Fit line</label>
+    </section>
+    <p id="scope-note" class="scope-note"></p>
+    <div class="chart-settings">
+      <div class="renderer-toggle" role="group" aria-label="Chart renderer">
+        <span>Render charts with:</span>
+        <button type="button" id="renderer-canvas" data-renderer="canvas" aria-pressed="true">Canvas</button>
+        <button type="button" id="renderer-svg" data-renderer="svg" aria-pressed="false">SVG</button>
+      </div>
+    </div>
+    <p class="chart-settings-note">Same charts, drawn two ways: Canvas paints pixels, SVG builds shapes you can inspect.</p>
+    <section id="chart-a" class="card"></section><p id="line-a-note" class="scope-note"></p>
+    <section id="chart-b" class="card"></section><p id="line-b-note" class="scope-note"></p>
+    <section id="chart-scatter" class="card"></section><p id="scatter-note" class="scope-note"></p>
+    <details id="table-details" class="card inspector">
+      <summary>Show data table and statistics</summary>
+      <div class="inspector-heading"><span>Data table</span><button id="export" type="button" disabled>Export CSV</button></div>
+      <div id="source-tabs" class="tabs" role="group" aria-label="Table dataset"><button data-source="0" aria-pressed="true">First file</button><button data-source="1" aria-pressed="false">Second file</button><button data-source="2" aria-pressed="false">Matched pairs</button></div>
+      <div class="table-tools">
+        <label class="control">Display<select id="table-mode"><option value="detail">All observations</option><option value="category">Summary by category</option><option value="group">Summary by group</option></select></label>
+        <label class="control">Sort<select id="table-sort"><option value="group">Group / original category order</option><option value="category">Category name</option><option value="value">Value / mean (low to high)</option><option value="value-desc">Value / mean (high to low)</option></select></label>
+        <label class="control">Rows per page<select id="page-size"><option>25</option><option selected>50</option><option>100</option></select></label><span id="table-count"></span>
+      </div>
+      <div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable results"><table id="data-table"><caption class="visually-hidden">Filtered results. Pagination changes the displayed rows only.</caption><thead></thead><tbody></tbody></table><p id="table-empty" hidden>No matching observations. Restore hidden groups or change the group filter.</p></div>
+      <div class="table-footer"><p id="table-note"></p><nav class="pager" aria-label="Table pagination"><button id="prev" type="button">Previous</button><span id="page-label"></span><button id="next" type="button">Next</button></nav></div>
+      <p class="export-note">The table and CSV follow the selected chart's hidden groups and the group filter. CSV includes every page of the selected display. Choose All observations for cleaned values; summary exports contain statistics. Paired summaries describe the first file (Y).</p>
+    </details>
+  </div>
+</main>
+<script type="module" src="src/main.js"></script>
+</body></html>

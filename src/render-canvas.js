@@ -164,7 +164,7 @@ export function createCanvasRenderer() {
       hover = pos;
       paint();
     },
-    setHighlight(group) { highlighted = group; paint(); },
+    setHighlight(group) { if (highlighted === group) return; highlighted = group; paint(); },
     destroy() { media?.removeEventListener('change', paint); canvas.remove(); },
   };
 }
