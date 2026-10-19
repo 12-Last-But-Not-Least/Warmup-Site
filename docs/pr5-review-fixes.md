@@ -8,27 +8,37 @@ PR #5 targets PR #4's branch. Goals come from the PR #4 review: **Y** = reviewer
 
 | ID | Goal | Decision | Commit |
 |----|------|----------|--------|
-| Y1 | Switching Linear ↔ Log after zooming distorts the chart | Reset **both** axes to the home view on a scale change (same as Reset view) | 1 ✅ |
-| M4 | Scatter ignores `setStatsProvider()` because the worker fit always overrides it | Send `statsOverride` **only when the scatter is sampled** (> 3,000 points). Numbers are unchanged on all 5 examples; metric cards (Pearson, means, medians, SD) and summary tables still come from the worker and are untouched | 2 |
-| M1 | Matched pairs "Group / original category order" sorts by the second file's value | Sort by each row's original category position, kept as its own field in the model | 3 |
-| Y3 | Sort is one dropdown; only Value/mean has both directions | Split into **Sort by** (column) + **ascending/descending** | 3 |
-| Y4 | Statistics table mixes 0, 1 and 3 decimals in one column | One fixed decimal count per column, based on the data's precision, capped at 3; counts stay whole numbers | 4 |
-| Y2 | CSV export covers all filtered rows, which isn't obvious | **Text only:** reword the existing table note to say the CSV contains every row matching the current filter and legend, across all pages. Same element and style as the other notes; button label unchanged | 5 |
-| M3 | Export filename hard-coded to `steps-sleep-…` | `<A>_vs_<B>__<view>__<rows>r__<id>.csv` — dataset names from header labels (fallback: file names), short view codes (`f1`/`f2`/`pairs` + `obs`/`bycat`/`bygrp`, `-flt` when filtered or legend groups hidden), row count, and a 6-character fingerprint of the cleaned data so different versions of the same dataset pair get different names | 5 |
-| M2 | Toggling a legend item rebuilds the charts and drops keyboard focus | `main.js` only: remember chart + group when the toggle came from a focused legend button, then focus that group's new button after the redraw (no scroll). Covered cases: highlighted item (focus re-applies the same highlight), group not on the current legend page (do nothing), another update first (pending refocus replaced or cleared), toggle not from the focused button (do nothing) | 6 |
-| Y6 | Plot width is set per chart | One compact global width dropdown in the existing pinned bar; Fullscreen stays per chart; width dropdown hidden below ~600px | 7 |
-| Y7-6a | Narrow screens: Fullscreen lands mid-row when the toolbar wraps | **Local CSS only:** Fullscreen pushed to the right end of its row (`margin-left: auto`) | 8 |
-| Y7-6b | "Show data table" and Copy image / Save PNG sit on different rows | **Local fix:** insert the table button as the first item of the existing image-actions row (one line in `main.js`) + one CSS rule to keep it left, image buttons right; one test selector narrowed to the image buttons | 8 |
+| Y1 | Switching Linear ↔ Log after zooming distorts the chart | Reset **both** axes to the home view on a scale change (same as Reset view) | `4aa4042` |
+| M4 | Scatter ignores `setStatsProvider()` because the worker fit always overrides it | Send `statsOverride` **only when the scatter is sampled** (> 3,000 points). Numbers are unchanged on all 5 examples; metric cards (Pearson, means, medians, SD) and summary tables still come from the worker and are untouched | `5beb066` |
+| M1 | Matched pairs "Group / original category order" sorts by the second file's value | Sort by each row's original category position, kept as its own field (`order`) in the model | `50d21b3` |
+| Y3 | Sort is one dropdown; only Value/mean has both directions | Split into **Sort by** (Group / original category order, Category name, Value / mean, Median, Sample SD, Min, Max) + **Order** (Ascending / Descending) | `50d21b3` |
+| Y4 | Statistics table mixes 0, 1 and 3 decimals in one column | One fixed decimal count per column from the file's precision, capped at 3: counts 0, Min/Max = precision, Mean/Median/SD = precision + 1 | `2f661ea` |
+| Y2 | CSV export covers all filtered rows, which isn't obvious | **Text only:** the existing export note now says Export CSV saves all matching rows across every page, not only the rows shown. Same element and style; button label unchanged | `ae42baf` |
+| M3 | Export filename hard-coded to `steps-sleep-…` | `<A>_vs_<B>__<view>__<rows>r__<id>.csv` — dataset names from header labels, view codes (`f1`/`f2`/`pairs` + `obs`/`bycat`/`bygrp`, `-flt` when filtered or legend groups hidden), row count, 6-character fingerprint of the cleaned data | `ae42baf` |
+| M2 | Toggling a legend item rebuilds the charts and drops keyboard focus | Remember chart + group when the toggle came from a focused legend button; only the redraw started by that toggle focuses the group's new button (no scroll). Later updates, a superseded redraw, a group off the current legend page, or a toggle not from the focused button leave focus alone | `228d4a5` |
+| Y6 | Plot width is set per chart | One global "Plot width" select at the right of the pinned bar; Fullscreen stays per chart; select hidden below 600px | `0931323` |
+| Y7-6a | Narrow screens: Fullscreen lands mid-row when the toolbar wraps | Hint left, controls packed right, so a wrapped row keeps Reset view and Fullscreen together at the right edge; empty status spans take no slot | `6242413` |
+| Y7-6b | "Show data table" and Copy image / Save PNG sit on different rows | Table button is the first item of the image-actions row (left); Copy image / Save PNG grouped on the right so they wrap together | `6242413` |
+| Y5 | The filter row (search, line display, means/fit) scrolls away | **CSS only, ≥ 1024px:** the filter row pins at the top and the Canvas/SVG bar pins directly below it; unpinned below 1024px | `80d9d25` |
 
-| Y5 | The filter row (search, overview, means/trend) scrolls away | **CSS only:** pin the existing filter row directly under the pinned bar on wide screens; unpinned on narrow screens where space is limited | 9 |
-
-Commits 8 and 9 are kept separate so each can be dropped on its own if a layout regression appears.
+Commits `6242413` and `80d9d25` are kept separate so each can be dropped on its own if a layout regression appears.
 
 ## Decisions taken
 
-- Y3: "Sort by" includes Median, SD, Min and Max for summary tables.
+- Y3: "Sort by" includes Median, SD, Min and Max for summary tables (hidden in "All observations" mode).
 - M3: filename format as above.
 - Y5: option (a), CSS-only pinning on wide screens, as its own commit.
+
+## Deviations from the plan
+
+Each is also explained in its commit message.
+
+- **Y4** also applies to the metric cards above the charts, which had the same mixed formatting.
+- **M3** lives in a new `src/export-name.js` instead of `model.js`, so the page doesn't load the CSV parser on the main thread just to name a file.
+- **M2** adds a one-line guard in `chart.js`: highlighting skips hidden groups. Restoring focus to a now-hidden legend item otherwise dimmed every visible group (a behaviour that predates this PR).
+- **Y7-6b** adds a two-line wrapper in `chart-image.js` so Copy image / Save PNG wrap as a pair; at 375px the three buttons need 329px of a 317px row.
+- **Y7-6a** changes the wide-screen toolbar slightly: controls cluster to the right of the hint instead of being spread with equal gaps.
+- **Y5** pins the filter row *above* the Canvas/SVG bar (the filter row comes first on the page), with a fixed 5.625rem height so the bar knows where to stop.
 
 ## Out of scope (follow-ups)
 
@@ -37,9 +47,12 @@ Commits 8 and 9 are kept separate so each can be dropped on its own if a layout 
 - With a custom provider set, the Pearson card (worker) and the scatter legend (provider) could show different r.
 - Redrawing only the toggled chart instead of all three after a legend click.
 - `// @ts-check` missing from `main.js` and the new PR #4 modules.
+- From the PR #4 review, not addressed here: the worker re-implements `data.js` CSV validation; each chart re-renders twice on window resize; the worker's `generated` dataset path is unreachable.
 
-## Verification for every commit
+## Verification
 
-- `npm test` and `npm run check:stats` pass; each fix adds a test that fails before it.
-- Commits 8 and 9: before/after measurements at 375, 560, 1024 and 1920 px — Fullscreen right-aligned when the toolbar wraps, table and image buttons on one row whenever they fit, no overlap, no horizontal scroll.
-- Final browser pass on desktop, 560 px and 375 px, Canvas and SVG, light and dark.
+- `npm test`: 41/41 pass (PR #4 had 33); `npm run check:stats`: all checks passed. Every fix added a test that failed before it, except Y5 (layout only).
+- Y7 before/after measurements at 375, 560, 1024 (960 and 640 plot width) and 1920 px (960 and fit, Canvas and SVG): Fullscreen 0px from its row's right edge at every width; table button on the image row wherever it fits; 0 overlapping controls; 0px horizontal overflow.
+- Y5: scrolling in 25px steps at 1024, 1280 and 1920 px — filter row at 0px, bar at 90px, 0px overlap; unpinned at 1000px.
+- All 5 examples load in Canvas and SVG with no console errors.
+- Not re-checked on this branch: dark mode, native fullscreen (only the expanded fallback was exercised), clipboard copy.
