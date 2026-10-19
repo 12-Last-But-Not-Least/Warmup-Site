@@ -12,6 +12,8 @@ import { drawScatter } from './chart.js';
 import { buildPlotData } from './data.js';
 
 /** @typedef {import('./chart.js').PlotInput} PlotInput */
+/** @typedef {import('./chart.js').ChartHandle} ChartHandle */
+/** @typedef {import('./chart.js').RendererKind} RendererKind */
 /** @typedef {ReturnType<typeof buildPlotData>} PlotData */
 
 /**
@@ -78,6 +80,19 @@ const statusEl = byId('status');
 const chartsEl = byId('charts');
 const warningsEl = byId('warnings');
 
+/** @type {string[]} warnings about the uploaded files */
+let dataWarnings = [];
+/** @type {Map<string, string>} chart title -> note about points a log axis can't show */
+const scaleWarnings = new Map();
+/** @type {ChartHandle[]} */
+let chartHandles = [];
+/** @type {RendererKind} */
+let renderer = 'canvas';
+
+function refreshWarnings() {
+  showWarnings([...dataWarnings, ...scaleWarnings.values()]);
+}
+
 /** @param {string[]} messages */
 function showWarnings(messages) {
   warningsEl.replaceChildren(...messages.map((m) => {
@@ -98,10 +113,12 @@ function showWarnings(messages) {
 function showCharts(textA, nameA, textB, nameB) {
   const a = buildPlotData(textA);
   const b = buildPlotData(textB);
-  showWarnings([
+  dataWarnings = [
     ...a.warnings.map((message) => `${nameA}: ${message}`),
     ...b.warnings.map((message) => `${nameB}: ${message}`),
-  ]);
+  ];
+  scaleWarnings.clear();
+  refreshWarnings();
 
   if (a.series.length === 0 || b.series.length === 0) {
     chartsEl.hidden = true; // don't leave the previous charts on screen
@@ -111,18 +128,53 @@ function showCharts(textA, nameA, textB, nameB) {
 
   const scatter = toScatterInput(a, b);
   chartsEl.hidden = false; // show before drawing so the charts can measure their width
-  drawScatter(byId('chart-a'), toLineInput(a, nameA));
-  drawScatter(byId('chart-b'), toLineInput(b, nameB));
-  drawScatter(byId('chart-scatter'), scatter);
+  chartHandles = [
+    plotChart('chart-a', toLineInput(a, nameA)),
+    plotChart('chart-b', toLineInput(b, nameB)),
+    plotChart('chart-scatter', scatter),
+  ];
 
   const groups = new Set([...a.series, ...b.series].map((s) => s.group)).size;
   statusEl.textContent = `Showing ${nameA} and ${nameB}: ${groups} groups, `
     + `${scatter.points.length} matched pairs on the scatter plot.`;
 }
 
+/**
+ * Draw one chart with the current renderer, and surface any points that a
+ * log axis can't show in the warnings list.
+ * @param {string} id
+ * @param {PlotInput} input
+ */
+function plotChart(id, input) {
+  return drawScatter(byId(id), input, {
+    renderer,
+    onHidden(count) {
+      if (count > 0) {
+        scaleWarnings.set(id, `${input.title}: ${count} point${count === 1 ? '' : 's'} with a value of 0 or less can't be shown on a log axis.`);
+      } else {
+        scaleWarnings.delete(id);
+      }
+      refreshWarnings();
+    },
+  });
+}
+
+// ---- Renderer toggle (Canvas / SVG) ----------------------------------------
+
+for (const button of document.querySelectorAll('button[data-renderer]')) {
+  button.addEventListener('click', () => {
+    renderer = /** @type {RendererKind} */ (button.getAttribute('data-renderer'));
+    for (const b of document.querySelectorAll('button[data-renderer]')) {
+      b.setAttribute('aria-pressed', String(b === button));
+    }
+    for (const handle of chartHandles) handle.setRenderer(renderer);
+  });
+}
+
 /** @param {unknown} err */
 function showError(err) {
   chartsEl.hidden = true;
+  chartHandles = [];
   showWarnings([`Couldn't read the files: ${err instanceof Error ? err.message : String(err)}`]);
   statusEl.textContent = 'Something went wrong reading the files. See the message below.';
 }

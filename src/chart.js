@@ -1,13 +1,26 @@
 // @ts-check
 /**
- * Scatter plot library: scales, ticks, axes, points, legend, tooltip, zoom/pan.
- * Plain SVG, retained mode, no chart libraries. Knows nothing about the data's
- * meaning — everything comes from the PlotInput.
+ * Scatter / line plot library: scales, ticks, axes, points, legend, tooltip, zoom/pan.
+ * No chart libraries. Knows nothing about the data's meaning — everything
+ * comes from the PlotInput.
+ *
+ * The chart builds a renderer-neutral Scene (pixel positions of ticks, marks,
+ * lines...) and hands it to a renderer: Canvas (default) or SVG. Hit-testing,
+ * zoom and pan work on the Scene and the container, so they behave the same
+ * with either. Each axis can independently be linear or log.
  *
  * Interaction: hover for a tooltip (nearest point), drag to pan,
  * Ctrl/⌘ + scroll (or trackpad pinch) to zoom, double-click or "Reset" to restore.
  */
-import { linearFit, pearson } from './stats.js';
+import { computeStats } from './stats.js';
+import {
+  formatLogTick, formatTick, fromT, isPlottable, logTicks, makeScale, niceTicks, paddedExtent,
+} from './scales.js';
+import { MEAN_HALF_WIDTH, POINT_R, colorFor, shapePath } from './render-common.js';
+import { createCanvasRenderer } from './render-canvas.js';
+import { createSvgRenderer, svgEl } from './render-svg.js';
+
+export { linearScale, niceStep, niceTicks, logTicks } from './scales.js';
 
 /**
  * @typedef {Object} Point
@@ -25,20 +38,30 @@ import { linearFit, pearson } from './stats.js';
  * @property {boolean} [showMeans]   // mean marker per distinct x (weekday plots)
  * @property {number}  [jitter]      // horizontal jitter in x units (weekday plots)
  * @property {boolean} [connectGroups] // join each group's points in x order (line chart)
- */
-
-/**
- * @typedef {Object} Scale
- * @property {(v: number) => number} map      data value -> pixel
- * @property {(px: number) => number} invert  pixel -> data value
+ *
+ * @typedef {'canvas' | 'svg'} RendererKind
+ * @typedef {import('./scales.js').ScaleKind} ScaleKind
+ *
+ * @typedef {Object} PlotOptions
+ * @property {RendererKind} [renderer]   default 'canvas'
+ * @property {ScaleKind} [xScale]        default 'linear'
+ * @property {ScaleKind} [yScale]        default 'linear'
+ * @property {(hidden: number) => void} [onHidden]  called whenever the number of points that
+ *                                       can't be drawn on a log axis (value <= 0) changes
+ * @property {boolean} [controls]        show the scale selects in the chart toolbar (default true)
+ *
+ * @typedef {Object} ChartHandle
+ * @property {(kind: RendererKind) => void} setRenderer
+ * @property {(axis: 'x' | 'y', kind: ScaleKind) => void} setScale
+ * @property {() => {renderer: RendererKind, xScale: ScaleKind, yScale: ScaleKind, hidden: number}} getState
  *
  * @typedef {Object} Mark   one drawn point
- * @property {Point} point  original input point (un-jittered)
+ * @property {Point} point  original input point
  * @property {string} group
  * @property {number} slot  index into the color/shape tables
+ * @property {number} noise jitter factor in [-1, 1]
  * @property {number} x     drawn x (after jitter)
  * @property {number} y
- * @property {SVGPathElement} [el]
  *
  * @typedef {Object} Mean   one mean marker (per distinct x)
  * @property {number} x
@@ -48,99 +71,19 @@ import { linearFit, pearson } from './stats.js';
  * @typedef {{kind: 'point', mark: Mark} | {kind: 'mean', mean: Mean}} Hit
  */
 
-const SVG_NS = 'http://www.w3.org/2000/svg';
 const MARGIN = { top: 20, right: 24, bottom: 52, left: 72 };
 const HEIGHT = 360;
-const POINT_R = 5;            // 10px markers
 const HIT_RADIUS = 24;        // px; hover target is much bigger than the mark
-const MEAN_HALF_WIDTH = 0.3;  // x units each side of the mean bar
-const SERIES_SLOTS = 8;       // colors defined in styles.css (--series-1..8)
-
-// Secondary encoding: 8 colors can't all be told apart in one scatter
-// (especially with color-vision deficiency), so each slot also gets a shape.
-// Chosen so the most confusable color pairs (orange/red/green, blue/violet,
-// aqua/green, orange/yellow) never share a shape.
-//                   blue      orange    aqua        yellow     magenta     green     violet     red
-const SLOT_SHAPES = ['circle', 'square', 'triangle', 'diamond', 'triangle', 'circle', 'diamond', 'cross'];
-
-let instanceCounter = 0; // for unique clipPath ids when several charts share a page
+const LOG_MEAN_HALF_PX = 12;  // mean bars have no fixed width in x units on a log axis
+const TREND_SAMPLES = 64;     // a straight line is a curve on a log axis
 
 // ---------------------------------------------------------------------------
-// Scales and ticks (exported so they can be unit-tested)
+// Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Linear map from a data domain to a pixel range.
- * @param {[number, number]} domain
- * @param {[number, number]} range
- * @returns {Scale}
- */
-export function linearScale(domain, range) {
-  const [d0, d1] = domain;
-  const [r0, r1] = range;
-  const k = (r1 - r0) / (d1 - d0);
-  return {
-    map: (v) => r0 + (v - d0) * k,
-    invert: (px) => d0 + (px - r0) / k,
-  };
-}
-
-/**
- * A "nice" step (1, 2 or 5 times a power of ten) giving roughly `count` intervals.
- * @param {number} span
- * @param {number} count
- */
-export function niceStep(span, count) {
-  const raw = span / Math.max(1, count);
-  const mag = 10 ** Math.floor(Math.log10(raw));
-  const norm = raw / mag;
-  const nice = norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10;
-  return nice * mag;
-}
-
-/**
- * Tick values at multiples of a nice step inside [min, max].
- * @param {number} min
- * @param {number} max
- * @param {number} count  desired number of intervals
- * @returns {{ticks: number[], step: number}}
- */
-export function niceTicks(min, max, count) {
-  const step = niceStep(max - min, count);
-  const ticks = [];
-  // Integer loop avoids floating-point drift from repeated addition.
-  for (let i = Math.ceil(min / step); i <= Math.floor(max / step); i++) {
-    ticks.push(i * step);
-  }
-  return { ticks, step };
-}
-
-/**
- * Format a tick value with just enough decimals for the tick step.
- * @param {number} v
- * @param {number} step
- */
-function formatTick(v, step) {
-  const decimals = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
-  return v.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-}
 
 /** @param {number} v */
 function formatValue(v) {
   return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
-}
-
-/**
- * Data extent padded on both sides so points don't sit on the frame.
- * @param {number[]} values
- * @returns {[number, number]}
- */
-function paddedExtent(values, pad = 0.06) {
-  let min = Math.min(...values);
-  let max = Math.max(...values);
-  if (min === max) { min -= 1; max += 1; }
-  const p = (max - min) * pad;
-  return [min - p, max + p];
 }
 
 /**
@@ -151,23 +94,6 @@ function paddedExtent(values, pad = 0.06) {
 function stableNoise(i) {
   const s = Math.sin((i + 1) * 12.9898) * 43758.5453;
   return (s - Math.floor(s)) * 2 - 1;
-}
-
-// ---------------------------------------------------------------------------
-// Small DOM helpers
-// ---------------------------------------------------------------------------
-
-/**
- * @param {string} tag
- * @param {Record<string, string | number>} [attrs]
- * @param {Element} [parent]
- * @returns {any}  typed loosely so callers can treat it as the specific SVG element
- */
-function svgEl(tag, attrs = {}, parent) {
-  const node = document.createElementNS(SVG_NS, tag);
-  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
-  if (parent) parent.appendChild(node);
-  return node;
 }
 
 /**
@@ -184,39 +110,21 @@ function htmlEl(tag, className, text) {
   return node;
 }
 
-/** @param {number} slot */
-function colorFor(slot) {
-  return slot < SERIES_SLOTS ? `var(--series-${slot + 1})` : 'var(--series-other)';
-}
-
 /**
- * Path data for a marker shape centered on (0, 0); positioned with a transform.
- * @param {number} slot
- * @param {number} r
+ * Mean y for each distinct (un-jittered) x.
+ * @param {Mark[]} marks
+ * @returns {Mean[]}
  */
-function shapePath(slot, r) {
-  const shape = slot < SERIES_SLOTS ? SLOT_SHAPES[slot] : 'circle';
-  switch (shape) {
-    case 'square': {
-      const s = r * 0.9;
-      return `M${-s},${-s}H${s}V${s}H${-s}Z`;
-    }
-    case 'triangle': {
-      const h = r * 1.25;
-      return `M0,${-h}L${h},${h * 0.75}L${-h},${h * 0.75}Z`;
-    }
-    case 'diamond': {
-      const d = r * 1.25;
-      return `M0,${-d}L${d},0L0,${d}L${-d},0Z`;
-    }
-    case 'cross': {
-      const a = r * 1.1;
-      const b = r * 0.38;
-      return `M${-b},${-a}H${b}V${-b}H${a}V${b}H${b}V${a}H${-b}V${b}H${-a}V${-b}H${-b}Z`;
-    }
-    default:
-      return `M${-r},0A${r},${r} 0 1,0 ${r},0A${r},${r} 0 1,0 ${-r},0Z`;
+function computeMeans(marks) {
+  /** @type {Map<number, {sum: number, n: number}>} */
+  const acc = new Map();
+  for (const m of marks) {
+    const a = acc.get(m.point.x) ?? { sum: 0, n: 0 };
+    a.sum += m.point.y;
+    a.n += 1;
+    acc.set(m.point.x, a);
   }
+  return [...acc].map(([x, { sum, n }]) => ({ x, y: sum / n, n }));
 }
 
 // ---------------------------------------------------------------------------
@@ -224,25 +132,38 @@ function shapePath(slot, r) {
 // ---------------------------------------------------------------------------
 
 /**
- * Render an interactive scatter plot into `container`, replacing its contents.
+ * Render an interactive plot into `container`, replacing its contents.
  * @param {HTMLElement} container
  * @param {PlotInput} input
- * @returns {void}
+ * @param {PlotOptions} [options]
+ * @returns {ChartHandle}
  */
-export function drawScatter(container, input) {
+export function drawScatter(container, input, options = {}) {
   const { title, xLabel, yLabel, xTickLabels, showTrend = false, showMeans = false, connectGroups = false } = input;
   // Jitter would make lines zig-zag sideways, so lines always plot at the exact x.
   const jitter = connectGroups ? 0 : input.jitter ?? 0;
   const points = input.points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
-  const id = ++instanceCounter;
+
+  /** @type {RendererKind} */ let rendererKind = options.renderer ?? 'canvas';
+  const kinds = { x: options.xScale ?? 'linear', y: options.yScale ?? 'linear' };
+  // Categorical x (weekday names) has no meaningful log scale.
+  const xScalable = !xTickLabels;
+  if (!xScalable) kinds.x = 'linear';
 
   container.replaceChildren();
   container.classList.add('scatter');
   container.append(htmlEl('h2', 'scatter-title', title));
 
+  /** @type {ChartHandle} */
+  const handle = {
+    setRenderer: () => {},
+    setScale: () => {},
+    getState: () => ({ renderer: rendererKind, xScale: kinds.x, yScale: kinds.y, hidden: 0 }),
+  };
+
   if (points.length === 0) {
     container.append(htmlEl('p', 'scatter-empty', 'No data to plot.'));
-    return;
+    return handle;
   }
 
   // Groups are sorted by name so the same person gets the same color and
@@ -255,23 +176,40 @@ export function drawScatter(container, input) {
     point: p,
     group: p.group ?? '',
     slot: groups.indexOf(p.group ?? ''),
-    x: p.x + jitter * stableNoise(i),
+    noise: stableNoise(i),
+    x: p.x,
     y: p.y,
   }));
 
-  // Initial ("home") view. With tick labels (categorical-ish x), give each
-  // labeled position half a unit of room on either side.
-  const xs = points.map((p) => p.x);
-  /** @type {[number, number]} */
-  let homeX;
-  if (xTickLabels) {
-    const keys = Object.keys(xTickLabels).map(Number).concat(xs);
-    homeX = [Math.min(...keys) - 0.5, Math.max(...keys) + 0.5];
-  } else {
-    homeX = paddedExtent(xs);
+  /** @param {Mark} m */
+  const plottable = (m) => isPlottable(kinds.x, m.point.x) && isPlottable(kinds.y, m.point.y);
+
+  /** Drawn x/y depend on the scale kind (jitter is additive on linear, multiplicative on log). */
+  function placeMarks() {
+    for (const m of marks) {
+      m.x = kinds.x === 'log' ? m.point.x * 10 ** (jitter * m.noise) : m.point.x + jitter * m.noise;
+      m.y = m.point.y;
+    }
   }
-  const homeY = paddedExtent(points.map((p) => p.y));
-  let view = { x: homeX, y: homeY };
+
+  // Initial ("home") view per axis, in t-space (see scales.js). With tick
+  // labels (categorical-ish x), give each labeled position half a unit of
+  // room on either side.
+  /** @returns {[number, number]} */
+  function homeX() {
+    const xs = points.map((p) => p.x);
+    if (xTickLabels) {
+      const keys = Object.keys(xTickLabels).map(Number).concat(xs);
+      return [Math.min(...keys) - 0.5, Math.max(...keys) + 0.5];
+    }
+    return paddedExtent(kinds.x, xs);
+  }
+  /** @returns {[number, number]} */
+  function homeY() {
+    return paddedExtent(kinds.y, points.map((p) => p.y));
+  }
+  let home = { x: homeX(), y: homeY() };
+  let view = { x: home.x, y: home.y };
 
   /** @type {Set<string>} groups switched off in the legend */
   const hidden = new Set();
@@ -287,30 +225,77 @@ export function drawScatter(container, input) {
   const hint = htmlEl('span', 'scatter-hint', 'Drag to pan · Ctrl/⌘ + scroll to zoom · double-click to reset');
   const resetBtn = htmlEl('button', 'scatter-reset', 'Reset view');
   resetBtn.type = 'button';
-  toolbar.append(hint, resetBtn);
+  toolbar.append(hint);
+
+  /** @type {Record<'x' | 'y', HTMLSelectElement>} */
+  const selects = /** @type {any} */ ({});
+  if (options.controls ?? true) {
+    for (const axis of /** @type {const} */ (['y', 'x'])) {
+      if (axis === 'x' && !xScalable) continue;
+      const label = htmlEl('label', 'scatter-scale');
+      const select = htmlEl('select');
+      select.append(new Option('Linear', 'linear'), new Option('Log', 'log'));
+      select.value = kinds[axis];
+      select.setAttribute('aria-label', `${axis.toUpperCase()} axis scale`);
+      select.addEventListener('change', () => setScale(axis, /** @type {ScaleKind} */ (select.value)));
+      selects[axis] = select;
+      label.append(`${axis.toUpperCase()} scale `, select);
+      toolbar.append(label);
+    }
+  }
+  toolbar.append(resetBtn);
 
   const plot = htmlEl('div', 'scatter-plot');
-  /** @type {SVGSVGElement} */
-  const svg = svgEl('svg', { role: 'img', 'aria-label': `${title}: ${yLabel} against ${xLabel}` });
   const tooltip = htmlEl('div', 'scatter-tooltip');
   tooltip.hidden = true;
-  plot.append(svg, tooltip);
 
   container.append(legend, toolbar, plot, buildTable());
 
   // ---- Render state read by the event handlers ----------------------------
-  let plotW = 0;
   const plotH = HEIGHT - MARGIN.top - MARGIN.bottom;
-  /** @type {Scale} */ let sx = linearScale(view.x, [0, 1]);
-  /** @type {Scale} */ let sy = linearScale(view.y, [0, 1]);
-  /** @type {Mark[]} */ let visibleMarks = [];
-  /** @type {Mean[]} */ let means = [];
-  /** @type {SVGCircleElement | null} */ let hoverRing = null;
-  /** @type {Map<string, SVGPathElement>} one line per group when connectGroups is on */
-  let lines = new Map();
+  let plotW = 0;
+  /** @type {import('./scales.js').Scale} */ let sx = makeScale(kinds.x, view.x, [0, 1]);
+  /** @type {import('./scales.js').Scale} */ let sy = makeScale(kinds.y, view.y, [0, 1]);
+  /** @type {import('./render-common.js').Scene | null} */ let scene = null;
+  /** @type {import('./render-common.js').Renderer} */
+  let renderer = rendererKind === 'svg' ? createSvgRenderer() : createCanvasRenderer();
+  let lastHidden = -1;
 
-  /** Rebuild the whole SVG for the current view. Cheap: data is small. */
-  function render() {
+  placeMarks();
+
+  /** Number of (legend-visible) points that the current scales can't draw. */
+  function countUnplottable() {
+    return marks.filter((m) => !hidden.has(m.group) && !plottable(m)).length;
+  }
+
+  function reportHidden() {
+    const n = countUnplottable();
+    if (n !== lastHidden) { lastHidden = n; options.onHidden?.(n); }
+  }
+
+  /** @param {'x' | 'y'} axis */
+  function tickList(axis) {
+    const isX = axis === 'x';
+    const kind = kinds[axis];
+    const [t0, t1] = view[axis];
+    const scale = isX ? sx : sy;
+    const px = isX ? plotW : plotH;
+    if (isX && xTickLabels) {
+      return Object.entries(xTickLabels)
+        .map(([k, text]) => ({ v: Number(k), text }))
+        .filter((t) => t.v >= t0 && t.v <= t1)
+        .map(({ v, text }) => ({ px: scale.map(v), text }));
+    }
+    if (kind === 'log') {
+      return logTicks(t0, t1, Math.max(3, Math.round(px / (isX ? 70 : 40))))
+        .map((v) => ({ px: scale.map(v), text: formatLogTick(v) }));
+    }
+    const nt = niceTicks(t0, t1, Math.max(2, Math.round(px / (isX ? 90 : 56))));
+    return nt.ticks.map((v) => ({ px: scale.map(v), text: formatTick(v, nt.step) }));
+  }
+
+  /** @returns {import('./render-common.js').Scene} */
+  function buildScene() {
     const width = Math.max(320, plot.clientWidth || 640);
     plotW = width - MARGIN.left - MARGIN.right;
     const left = MARGIN.left;
@@ -318,122 +303,74 @@ export function drawScatter(container, input) {
     const top = MARGIN.top;
     const bottom = MARGIN.top + plotH;
 
-    svg.setAttribute('width', String(width));
-    svg.setAttribute('height', String(HEIGHT));
-    svg.setAttribute('viewBox', `0 0 ${width} ${HEIGHT}`);
-    svg.replaceChildren();
+    sx = makeScale(kinds.x, view.x, [left, right]);
+    sy = makeScale(kinds.y, view.y, [bottom, top]); // screen y grows downward
 
-    sx = linearScale(view.x, [left, right]);
-    sy = linearScale(view.y, [bottom, top]); // SVG y grows downward
+    const visible = marks.filter((m) => !hidden.has(m.group) && plottable(m));
 
-    const clipId = `scatter-clip-${id}`;
-    const defs = svgEl('defs', {}, svg);
-    svgEl('rect', { x: left, y: top, width: plotW, height: plotH }, svgEl('clipPath', { id: clipId }, defs));
-
-    // -- Grid and tick labels --
-    const grid = svgEl('g', { class: 'grid' }, svg);
-    const axis = svgEl('g', { class: 'axis' }, svg);
-
-    const yTicks = niceTicks(view.y[0], view.y[1], Math.max(2, Math.round(plotH / 56)));
-    for (const v of yTicks.ticks) {
-      const y = sy.map(v);
-      svgEl('line', { x1: left, x2: right, y1: y, y2: y }, grid);
-      const t = svgEl('text', { x: left - 8, y, class: 'tick-label', 'text-anchor': 'end', 'dominant-baseline': 'middle' }, axis);
-      t.textContent = formatTick(v, yTicks.step);
-    }
-
-    /** @type {{v: number, text: string}[]} */
-    let xTicks;
-    if (xTickLabels) {
-      xTicks = Object.entries(xTickLabels)
-        .map(([k, text]) => ({ v: Number(k), text }))
-        .filter((t) => t.v >= view.x[0] && t.v <= view.x[1]);
-    } else {
-      const nt = niceTicks(view.x[0], view.x[1], Math.max(2, Math.round(plotW / 90)));
-      xTicks = nt.ticks.map((v) => ({ v, text: formatTick(v, nt.step) }));
-    }
-    for (const { v, text } of xTicks) {
-      const x = sx.map(v);
-      svgEl('line', { x1: x, x2: x, y1: top, y2: bottom }, grid);
-      const t = svgEl('text', { x, y: bottom + 18, class: 'tick-label', 'text-anchor': 'middle' }, axis);
-      t.textContent = text;
-    }
-
-    // Axis baselines and titles
-    svgEl('line', { x1: left, x2: right, y1: bottom, y2: bottom, class: 'baseline' }, axis);
-    svgEl('line', { x1: left, x2: left, y1: top, y2: bottom, class: 'baseline' }, axis);
-    if (xLabel) {
-      svgEl('text', { x: (left + right) / 2, y: HEIGHT - 10, class: 'axis-title', 'text-anchor': 'middle' }, axis).textContent = xLabel;
-    }
-    if (yLabel) {
-      svgEl('text', {
-        x: -(top + bottom) / 2, y: 18, class: 'axis-title', 'text-anchor': 'middle', transform: 'rotate(-90)',
-      }, axis).textContent = yLabel;
-    }
-
-    // -- Data (clipped to the plot area so zoom/pan doesn't spill over axes) --
-    const data = svgEl('g', { 'clip-path': `url(#${clipId})` }, svg);
-    visibleMarks = marks.filter((m) => !hidden.has(m.group));
-
-    if (showTrend && visibleMarks.length >= 2) {
-      const xy = visibleMarks.map((m) => ({ x: m.point.x, y: m.point.y }));
-      const { slope, intercept } = linearFit(xy);
-      if (Number.isFinite(slope)) {
-        const [x0, x1] = view.x;
-        svgEl('line', {
-          class: 'trend',
-          x1: sx.map(x0), y1: sy.map(slope * x0 + intercept),
-          x2: sx.map(x1), y2: sy.map(slope * x1 + intercept),
-        }, data);
+    /** @type {[number, number][] | null} */
+    let trend = null;
+    /** @type {string | null} */
+    let cornerLabel = null;
+    if (showTrend && visible.length >= 2) {
+      const xy = visible.map((m) => ({ x: m.point.x, y: m.point.y }));
+      const stats = computeStats(xy);
+      if (Number.isFinite(stats.slope) && Number.isFinite(stats.intercept)) {
+        const straight = kinds.x === 'linear' && kinds.y === 'linear';
+        const samples = straight ? 2 : TREND_SAMPLES;
+        trend = [];
+        for (let i = 0; i < samples; i++) {
+          const xv = fromT(kinds.x, view.x[0] + ((view.x[1] - view.x[0]) * i) / (samples - 1));
+          const yv = stats.slope * xv + stats.intercept;
+          if (isPlottable(kinds.y, yv)) trend.push([sx.map(xv), sy.map(yv)]);
+        }
+        if (trend.length < 2) trend = null;
       }
-      const r = pearson(xy);
-      const label = svgEl('text', { x: right - 8, y: top + 16, class: 'corner-label', 'text-anchor': 'end' }, svg);
-      label.textContent = `r = ${Number.isFinite(r) ? r.toFixed(2) : '—'}  (n = ${xy.length})`;
+      cornerLabel = `r = ${Number.isFinite(stats.r) ? stats.r.toFixed(2) : '—'}  (n = ${stats.n})`;
+      if (typeof stats.p_value === 'number' && Number.isFinite(stats.p_value)) {
+        cornerLabel += `  p = ${stats.p_value < 0.001 ? '<0.001' : stats.p_value.toFixed(3)}`;
+      }
     }
 
-    // Lines go under the points so the markers stay visible on top.
-    lines = new Map();
+    const lines = [];
     if (connectGroups) {
       for (const group of groups) {
-        const pts = visibleMarks.filter((m) => m.group === group).sort((a, b) => a.x - b.x);
+        const pts = visible.filter((m) => m.group === group).sort((a, b) => a.x - b.x);
         if (pts.length < 2) continue;
-        const d = pts.map((m, i) => `${i ? 'L' : 'M'}${sx.map(m.x)},${sy.map(m.y)}`).join('');
-        lines.set(group, svgEl('path', { d, class: 'series-line', stroke: colorFor(pts[0].slot), fill: 'none' }, data));
+        lines.push({
+          group, slot: pts[0].slot, pts: /** @type {[number, number][]} */ (pts.map((m) => [sx.map(m.x), sy.map(m.y)])),
+        });
       }
     }
 
-    for (const m of visibleMarks) {
-      m.el = svgEl('path', {
-        class: 'point',
-        d: shapePath(m.slot, POINT_R),
-        transform: `translate(${sx.map(m.x)},${sy.map(m.y)})`,
-        fill: colorFor(m.slot),
-      }, data);
-    }
+    const means = (showMeans ? computeMeans(visible) : []).map((mean) => {
+      const c = sx.map(mean.x);
+      const half = kinds.x === 'log' ? LOG_MEAN_HALF_PX : Math.abs(sx.map(mean.x + MEAN_HALF_WIDTH) - c);
+      return { x0: c - half, x1: c + half, y: sy.map(mean.y), mean };
+    });
 
-    // Means go on top of the points so the bar is always readable.
-    means = showMeans ? computeMeans(visibleMarks) : [];
-    for (const mean of means) {
-      const attrs = {
-        x1: sx.map(mean.x - MEAN_HALF_WIDTH), x2: sx.map(mean.x + MEAN_HALF_WIDTH),
-        y1: sy.map(mean.y), y2: sy.map(mean.y),
-      };
-      svgEl('line', { ...attrs, class: 'mean-halo' }, data);
-      svgEl('line', { ...attrs, class: 'mean' }, data);
-    }
-
-    hoverRing = svgEl('circle', { class: 'hover-ring', r: POINT_R + 4, visibility: 'hidden' }, data);
-    applyHighlight();
+    return {
+      width,
+      height: HEIGHT,
+      plot: { left, right, top, bottom },
+      xTicks: tickList('x'),
+      yTicks: tickList('y'),
+      xLabel,
+      yLabel,
+      trend,
+      cornerLabel,
+      lines,
+      marks: visible.map((m) => ({ px: sx.map(m.x), py: sy.map(m.y), slot: m.slot, group: m.group, mark: m })),
+      means,
+      ariaLabel: `${title}: ${yLabel} against ${xLabel}`,
+    };
   }
 
-  /** Dim every group except the one hovered in the legend. */
-  function applyHighlight() {
-    for (const m of visibleMarks) {
-      m.el?.classList.toggle('dimmed', highlighted !== null && m.group !== highlighted);
-    }
-    for (const [group, line] of lines) {
-      line.classList.toggle('dimmed', highlighted !== null && group !== highlighted);
-    }
+  /** Rebuild the scene and hand it to the renderer. Cheap: data is small. */
+  function render() {
+    scene = buildScene();
+    renderer.draw(scene);
+    renderer.setHighlight(highlighted);
   }
 
   // ---- Hover / tooltip ----------------------------------------------------
@@ -446,20 +383,19 @@ export function drawScatter(container, input) {
    * @returns {Hit | null}
    */
   function nearest(px, py) {
+    if (!scene) return null;
     /** @type {Hit | null} */
     let best = null;
     let bestD = HIT_RADIUS ** 2;
-    for (const mark of visibleMarks) {
-      const d = (sx.map(mark.x) - px) ** 2 + (sy.map(mark.y) - py) ** 2;
-      if (d < bestD) { bestD = d; best = { kind: 'point', mark }; }
+    for (const m of scene.marks) {
+      const d = (m.px - px) ** 2 + (m.py - py) ** 2;
+      if (d < bestD) { bestD = d; best = { kind: 'point', mark: m.mark }; }
     }
-    for (const mean of means) {
+    for (const bar of scene.means) {
       // Distance to the horizontal bar segment, not just its center.
-      const x0 = sx.map(mean.x - MEAN_HALF_WIDTH);
-      const x1 = sx.map(mean.x + MEAN_HALF_WIDTH);
-      const cx = Math.min(Math.max(px, x0), x1);
-      const d = (cx - px) ** 2 + (sy.map(mean.y) - py) ** 2;
-      if (d < bestD) { bestD = d; best = { kind: 'mean', mean }; }
+      const cx = Math.min(Math.max(px, bar.x0), bar.x1);
+      const d = (cx - px) ** 2 + (bar.y - py) ** 2;
+      if (d < bestD) { bestD = d; best = { kind: 'mean', mean: bar.mean }; }
     }
     return best;
   }
@@ -475,7 +411,7 @@ export function drawScatter(container, input) {
    * @param {number} py
    */
   function showTooltip(hit, px, py) {
-    if (!hit || !hoverRing) { hideTooltip(); return; }
+    if (!hit) { hideTooltip(); return; }
 
     /** @type {[string, string][]} */
     let rows;
@@ -484,14 +420,12 @@ export function drawScatter(container, input) {
       const { mark } = hit;
       heading = hasGroups ? mark.group || '(no group)' : '';
       rows = [[xLabel, xText(mark.point.x)], [yLabel, formatValue(mark.point.y)]];
-      hoverRing.setAttribute('cx', String(sx.map(mark.x)));
-      hoverRing.setAttribute('cy', String(sy.map(mark.y)));
-      hoverRing.setAttribute('visibility', 'visible');
+      renderer.setHover({ px: sx.map(mark.x), py: sy.map(mark.y) });
     } else {
       const { mean } = hit;
       heading = 'Mean';
       rows = [[xLabel, xText(mean.x)], [yLabel, formatValue(mean.y)], ['n', String(mean.n)]];
-      hoverRing.setAttribute('visibility', 'hidden');
+      renderer.setHover(null);
     }
 
     // textContent only: group names come from user-uploaded CSVs.
@@ -513,19 +447,20 @@ export function drawScatter(container, input) {
 
   function hideTooltip() {
     tooltip.hidden = true;
-    hoverRing?.setAttribute('visibility', 'hidden');
+    renderer.setHover(null);
   }
 
   // ---- Zoom / pan ---------------------------------------------------------
+  // The view is in t-space, so these are plain linear operations on either scale.
 
   /** @param {MouseEvent} e */
   function localXY(e) {
-    const rect = svg.getBoundingClientRect();
+    const rect = plot.getBoundingClientRect();
     return { px: e.clientX - rect.left, py: e.clientY - rect.top };
   }
 
   function resetView() {
-    view = { x: homeX, y: homeY };
+    view = { x: home.x, y: home.y };
     hideTooltip();
     render();
   }
@@ -533,17 +468,17 @@ export function drawScatter(container, input) {
   /** @type {{px: number, py: number, x: [number, number], y: [number, number]} | null} */
   let drag = null;
 
-  svg.addEventListener('pointerdown', (e) => {
+  plot.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     drag = { px: e.clientX, py: e.clientY, x: view.x, y: view.y };
-    svg.setPointerCapture(e.pointerId);
-    svg.classList.add('dragging');
+    plot.setPointerCapture(e.pointerId);
+    plot.classList.add('dragging');
     hideTooltip();
   });
 
-  svg.addEventListener('pointermove', (e) => {
+  plot.addEventListener('pointermove', (e) => {
     if (drag) {
-      // Convert the pixel delta to data units using the view at drag start.
+      // Convert the pixel delta to t-space units using the view at drag start.
       const dx = ((e.clientX - drag.px) * (drag.x[1] - drag.x[0])) / plotW;
       const dy = ((e.clientY - drag.py) * (drag.y[1] - drag.y[0])) / plotH;
       view = {
@@ -559,28 +494,29 @@ export function drawScatter(container, input) {
 
   const endDrag = () => {
     drag = null;
-    svg.classList.remove('dragging');
+    plot.classList.remove('dragging');
   };
-  svg.addEventListener('pointerup', endDrag);
-  svg.addEventListener('pointercancel', endDrag);
-  svg.addEventListener('pointerleave', hideTooltip);
+  plot.addEventListener('pointerup', endDrag);
+  plot.addEventListener('pointercancel', endDrag);
+  plot.addEventListener('pointerleave', hideTooltip);
 
   // Zoom only with Ctrl/⌘ (trackpad pinch also sets ctrlKey), so plain
   // scrolling still scrolls the page past the chart.
-  svg.addEventListener('wheel', (e) => {
+  plot.addEventListener('wheel', (e) => {
     if (!(e.ctrlKey || e.metaKey)) return;
     e.preventDefault();
     const { px, py } = localXY(e);
-    const f = Math.exp(e.deltaY * 0.01); // >1 zooms out, <1 zooms in
+    // Small steps: a mouse-wheel notch (deltaY ~100) is about 20%.
+    const f = Math.exp(Math.max(-100, Math.min(100, e.deltaY)) * 0.002); // >1 zooms out, <1 zooms in
 
     // Keep zoom within 1/50x .. 10x of the home view.
     const span = (view.x[1] - view.x[0]) * f;
-    const homeSpan = homeX[1] - homeX[0];
+    const homeSpan = home.x[1] - home.x[0];
     if (span < homeSpan / 50 || span > homeSpan * 10) return;
 
     // Zoom about the cursor: the data point under it stays fixed.
-    const cx = sx.invert(px);
-    const cy = sy.invert(py);
+    const cx = sx.invertT(px);
+    const cy = sy.invertT(py);
     view = {
       x: [cx + (view.x[0] - cx) * f, cx + (view.x[1] - cx) * f],
       y: [cy + (view.y[0] - cy) * f, cy + (view.y[1] - cy) * f],
@@ -589,8 +525,43 @@ export function drawScatter(container, input) {
     render();
   }, { passive: false });
 
-  svg.addEventListener('dblclick', resetView);
+  plot.addEventListener('dblclick', resetView);
   resetBtn.addEventListener('click', resetView);
+
+  // ---- Public controls ----------------------------------------------------
+
+  /** @param {RendererKind} kind */
+  function setRenderer(kind) {
+    if (kind === rendererKind) return;
+    rendererKind = kind;
+    hideTooltip();
+    renderer.destroy();
+    renderer = kind === 'svg' ? createSvgRenderer() : createCanvasRenderer();
+    plot.replaceChildren(renderer.el, tooltip);
+    render();
+  }
+
+  /**
+   * @param {'x' | 'y'} axis
+   * @param {ScaleKind} kind
+   */
+  function setScale(axis, kind) {
+    if (axis === 'x' && !xScalable) return;
+    if (kind === kinds[axis]) return;
+    kinds[axis] = kind;
+    if (selects[axis]) selects[axis].value = kind;
+    placeMarks();
+    // The old view is in the other scale's units; start this axis over.
+    home = { x: homeX(), y: homeY() };
+    view = { ...view, [axis]: home[axis] };
+    hideTooltip();
+    render();
+    reportHidden();
+  }
+
+  handle.setRenderer = setRenderer;
+  handle.setScale = setScale;
+  handle.getState = () => ({ renderer: rendererKind, xScale: kinds.x, yScale: kinds.y, hidden: countUnplottable() });
 
   // ---- Legend -------------------------------------------------------------
   if (hasGroups) {
@@ -606,9 +577,10 @@ export function drawScatter(container, input) {
         btn.setAttribute('aria-pressed', String(!hidden.has(group)));
         hideTooltip();
         render();
+        reportHidden();
       });
-      const on = () => { highlighted = group; applyHighlight(); };
-      const off = () => { highlighted = null; applyHighlight(); };
+      const on = () => { highlighted = group; renderer.setHighlight(group); };
+      const off = () => { highlighted = null; renderer.setHighlight(null); };
       btn.addEventListener('mouseenter', on);
       btn.addEventListener('focus', on);
       btn.addEventListener('mouseleave', off);
@@ -663,7 +635,9 @@ export function drawScatter(container, input) {
   }
 
   // ---- Initial render + re-render on width change -------------------------
+  plot.append(renderer.el, tooltip);
   render();
+  reportHidden();
   let lastWidth = plot.clientWidth;
   new ResizeObserver(() => {
     if (plot.clientWidth === lastWidth) return;
@@ -671,21 +645,6 @@ export function drawScatter(container, input) {
     hideTooltip();
     render();
   }).observe(plot);
-}
 
-/**
- * Mean y for each distinct (un-jittered) x.
- * @param {Mark[]} marks
- * @returns {Mean[]}
- */
-function computeMeans(marks) {
-  /** @type {Map<number, {sum: number, n: number}>} */
-  const acc = new Map();
-  for (const m of marks) {
-    const a = acc.get(m.point.x) ?? { sum: 0, n: 0 };
-    a.sum += m.point.y;
-    a.n += 1;
-    acc.set(m.point.x, a);
-  }
-  return [...acc].map(([x, { sum, n }]) => ({ x, y: sum / n, n }));
+  return handle;
 }

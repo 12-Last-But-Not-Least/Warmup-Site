@@ -63,6 +63,44 @@ export function pearson(points) {
 }
 
 /**
+ * Summary fields the chart understands. `slope`/`intercept`/`r`/`n` drive the
+ * trend line and corner label; anything else (r_squared, p_value, ...) is
+ * passed through for the UI to show. Field names match correlation_stats()
+ * in the Warm_up_project stats.py so a provider can return its output as is.
+ * @typedef {{n: number, r: number, slope: number, intercept: number,
+ *            r_squared?: number, p_value?: number, [extra: string]: number | null | undefined}} StatsResult
+ */
+
+/** @type {(points: XY[]) => StatsResult} */
+function builtinProvider(points) {
+  const { slope, intercept } = linearFit(points);
+  const r = pearson(points);
+  return { n: points.length, r, slope, intercept, r_squared: r * r };
+}
+
+let provider = builtinProvider;
+
+/**
+ * Swap in another statistics implementation (e.g. the shared stats library).
+ * It must be synchronous, return the fields above, and return NaN (not throw)
+ * for slope/intercept/r when the fit is undefined. Call with no argument to
+ * restore the built-in one.
+ * @param {((points: XY[]) => StatsResult) | undefined} [fn]
+ */
+export function setStatsProvider(fn) {
+  provider = fn ?? builtinProvider;
+}
+
+/**
+ * Stats for the points currently plotted, from whichever provider is active.
+ * @param {XY[]} points
+ * @returns {StatsResult}
+ */
+export function computeStats(points) {
+  return provider(points);
+}
+
+/**
  * @typedef {{x: number, y: number, group?: string}} GroupedPoint
  *
  * @typedef {Object} Summary

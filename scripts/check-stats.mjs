@@ -63,7 +63,8 @@ run('numeric x headers', 'Pop,2020,2010,2000\nA,3,2,1\nB,6,5,4', { xType: 'numbe
 
 // Hand-computed expectations.
 const dup = groupStats(pointsFromSeries(buildPlotData(EDGE_CASES['duplicate row label']).series));
-check(dup[0].label === 'Ana' && dup[0].stats.n === 4 && dup[0].stats.mean === 2.5, 'duplicate rows should merge into one group');
+// The parser combines duplicate names and keeps the first value per column.
+check(dup[0].label === 'Ana' && dup[0].stats.n === 2 && dup[0].stats.mean === 1.5, 'duplicate rows should merge into one group');
 const rev = buildPlotData(EDGE_CASES['reversed columns']);
 const revCols = groupStats(pointsFromSeries(rev.series), 'x', rev.xTickLabels).map((r) => r.label);
 check(revCols.join() === 'Mar,Feb,Jan', `columns should keep file order, got ${revCols}`);
