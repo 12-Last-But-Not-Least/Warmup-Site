@@ -119,7 +119,8 @@ function paintCharts(preserve = true, widthOverride) {
     const fullNote = note;
     const handle = drawScatter($(ids[i]), { ...input, showMeans: $('show-means').checked && i < 2, showTrend: i === 2 && $('show-trend').checked }, {
       ...states[i], renderer, xScale: chartSettings[i].x, yScale: chartSettings[i].y,
-      maxWidth: widthOverride ?? states[i]?.maxWidth ?? $('plot-width').value, // Y6: global default, per-chart override
+      // Y6: global default, per-chart override; "mixed" is a display state, never a width.
+      maxWidth: widthOverride ?? states[i]?.maxWidth ?? ($('plot-width').value === 'mixed' ? undefined : $('plot-width').value),
       onVisibilityChange(hidden) {
         // The redraw replaces the legend, so remember the toggled item if it had focus (M2).
         const focused = document.activeElement;
@@ -140,7 +141,15 @@ function paintCharts(preserve = true, widthOverride) {
     const imageActions = $(ids[i]).querySelector('.chart-image-actions');
     if (imageActions) imageActions.prepend(tableLink); else $(ids[i]).append(tableLink);
   });
+  syncGlobalWidth();
 }
+// The global width shows the charts' common width, or "Mixed" when a chart was set on its own.
+// From "Mixed", picking any size is a change, so it always applies to every chart.
+function syncGlobalWidth() {
+  const widths = charts.map(h => h.getState().maxWidth);
+  if (widths.length) $('plot-width').value = widths.every(w => w === widths[0]) ? widths[0] : 'mixed';
+}
+$('charts').addEventListener('change', e => { if (e.target.closest('.scatter .chart-width')) syncGlobalWidth(); });
 async function updateView(preserve = false) {
   if (!active) return;
   const version = ++viewVersion, client = active;

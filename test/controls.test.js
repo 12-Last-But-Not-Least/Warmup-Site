@@ -268,8 +268,12 @@ test('original empty state, examples and automatic two-file loading coordinate w
   $('chart-a').querySelector('.legend-item').click();
   await until(() => $('line-a-note').textContent.includes('hidden by'));
   assert.equal($('chart-b').style.maxWidth, '800px', 'a per-chart choice survives redraws');
+  assert.equal($('plot-width').value, 'mixed', 'the global control says the charts differ');
   $('chart-a').querySelector('.legend-item').click();
   await until(() => !$('line-a-note').textContent.includes('hidden by'));
+  $('plot-width').value = '640'; change($('plot-width'));   // the same size as before: must still apply to all
+  assert.deepEqual(['chart-a','chart-b','chart-scatter'].map(id => $(id).style.maxWidth), ['640px','640px','640px']);
+  assert.equal($('plot-width').value, '640');
   $('plot-width').value = ''; change($('plot-width'));
   for (const id of ['chart-a','chart-b','chart-scatter']) assert.equal($(id).style.maxWidth, 'none', 'the global choice resets every chart');
   assert.equal(observers.size,3);
