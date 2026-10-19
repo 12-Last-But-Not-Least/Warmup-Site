@@ -95,6 +95,19 @@ test('the scatter legend uses a custom stats provider when the data is not sampl
   } finally { setStatsProvider(); handle.destroy(); root.remove(); }
 });
 
+test('focusing or hovering a hidden legend item does not dim the visible groups', () => {
+  const root = document.createElement('section'); document.body.append(root);
+  const input = {title:'T',xLabel:'X',yLabel:'Y',groupNames:['A','B'],hiddenGroups:['A'],points:[{x:1,y:1,group:'A'},{x:2,y:2,group:'B'},{x:3,y:1,group:'B'}]};
+  const handle = drawScatter(root, input, {renderer:'svg', controls:false});
+  try {
+    const [hiddenItem, visibleItem] = root.querySelectorAll('.legend-item');
+    hiddenItem.focus();
+    assert.equal(root.querySelectorAll('.scatter-plot .dimmed').length, 0);
+    visibleItem.focus();
+    assert.equal(root.querySelectorAll('.scatter-plot .dimmed').length, 0, 'B is the only visible group');
+  } finally { handle.destroy(); root.remove(); }
+});
+
 test('an all-hidden chart retains every group control for recovery', () => {
   const root = document.createElement('section'); document.body.append(root);
   const model = createModel(...generatedPair(2).map(text=>buildPlotData(text)));
@@ -186,14 +199,20 @@ test('original empty state, examples and automatic two-file loading coordinate w
   assert.deepEqual([...document.querySelectorAll('#charts > section.scatter')].map(n=>n.id),['chart-a','chart-b','chart-scatter']);
   const initialRows = $('data-table').tBodies[0].rows.length;
   const group = $('chart-a').querySelector('.legend-item').textContent;
+  $('chart-a').querySelector('.legend-item').focus();
   $('chart-a').querySelector('.legend-item').click();
   await until(() => $('line-a-note').textContent.includes('hidden by'));
+  assert.equal(document.activeElement.textContent, group, 'focus returns to the toggled legend item after the redraw (M2)');
+  assert.ok($('chart-a').contains(document.activeElement));
   assert.equal($('chart-a').querySelector('.legend-item').getAttribute('aria-pressed'),'false');
   assert.equal($('chart-b').querySelector('.legend-item').getAttribute('aria-pressed'),'true');
   await until(() => $('data-table').tBodies[0].rows.length < initialRows);
   assert.ok(![...$('data-table').tBodies[0].rows].some(row=>row.cells[0].textContent===group));
+  $('chart-b').querySelector('.legend-item').focus();
   $('chart-a').querySelector('.legend-item').click();
   await until(() => $('data-table').tBodies[0].rows.length===initialRows);
+  assert.ok($('chart-b').contains(document.activeElement) || document.activeElement === document.body, 'a toggle not made from the focused button does not move focus');
+  assert.ok(!$('chart-a').contains(document.activeElement));
   for (const example of examples.slice(1)) {
     example.click();
     await until(() => $('task').hidden);

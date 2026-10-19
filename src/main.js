@@ -9,6 +9,7 @@ let active, candidate, task, request = 0, loadVersion = 0, viewVersion = 0, page
 let charts = [], current, page = 0, source = 0, filterTimer;
 let rendererKind = 'canvas';
 let hiddenBySource = [[], [], []];
+let refocus = null; // { id, label } of a legend item to focus after the next redraw
 const chartSettings = [{ x: 'linear', y: 'linear' }, { x: 'linear', y: 'linear' }, { x: 'linear', y: 'linear' }];
 
 function workerClient() {
@@ -117,7 +118,13 @@ function paintCharts(preserve = true) {
     const fullNote = note;
     const handle = drawScatter($(ids[i]), { ...input, showMeans: $('show-means').checked && i < 2, showTrend: i === 2 && $('show-trend').checked }, {
       ...states[i], renderer, xScale: chartSettings[i].x, yScale: chartSettings[i].y,
-      onVisibilityChange(hidden) { hiddenBySource[i] = hidden; updateView(true); },
+      onVisibilityChange(hidden) {
+        // The redraw replaces the legend, so remember the toggled item if it had focus (M2).
+        const focused = document.activeElement;
+        const toggled = [...hidden, ...hiddenBySource[i]].find(g => hidden.includes(g) !== hiddenBySource[i].includes(g));
+        refocus = focused?.classList.contains('legend-item') && $(ids[i]).contains(focused) ? { id: ids[i], label: toggled || '(no group)' } : null;
+        hiddenBySource[i] = hidden; updateView(true);
+      },
       onHidden(_sampleCount, kinds) {
         chartSettings[i] = kinds;
         const hidden = kinds.x === 'log' && kinds.y === 'log' ? input.eitherNonPositive : kinds.x === 'log' ? input.xNonPositive : kinds.y === 'log' ? input.yNonPositive : 0;
@@ -133,11 +140,15 @@ function paintCharts(preserve = true) {
 async function updateView(preserve = false) {
   if (!active) return;
   const version = ++viewVersion, client = active;
+  // Only the redraw started by a legend toggle restores focus; later updates find nothing pending.
+  const focusTarget = refocus; refocus = null;
   $('charts').setAttribute('aria-busy', 'true');
   try {
     const view = await client.send('view', { query: $('group-filter').value, overview: $('overview').value, hiddenBySource: hiddenBySource.map(groups => [...groups]) }).promise;
     if (version !== viewVersion || client !== active) return;
-    current = view; page = 0; paintView(preserve); await loadPage();
+    current = view; page = 0; paintView(preserve);
+    if (focusTarget) [...$(focusTarget.id).querySelectorAll('.legend-item')].find(b => b.textContent === focusTarget.label)?.focus({ preventScroll: true });
+    await loadPage();
   } catch (e) { if (version === viewVersion) status(e.message, true); }
   finally { if (version === viewVersion) $('charts').removeAttribute('aria-busy'); }
 }
