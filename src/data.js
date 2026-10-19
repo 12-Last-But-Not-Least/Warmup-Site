@@ -1,17 +1,33 @@
-import Papa from 'papaparse';
+import Papa from './vendor/papa.js';
 
 const numericPattern = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+/**
+ * The form of a group name used for matching, so "Jay", "jay" and " JAY "
+ * count as the same person. Also ignores invisible characters, runs of
+ * whitespace, and different encodings of accents.
+ * @param {string} name
+ * @returns {string}
+ */
+export function nameKey(name) {
+  return name
+    .normalize('NFC')
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
 
 /**
  * Read a header-based CSV without guessing types or changing cell contents.
  * Column names are trimmed and must be nonempty and unique (case-sensitive).
  * Rows contain strings in column order, allowing a UI to offer column selectors.
  * @param {string} text
- * @returns {{columns: string[], rows: string[][], warnings: string[]}}
+ * @returns {{columns: string[], rows: string[][], recordNumbers: number[], warnings: string[]}}
  */
 export function parseCsv(text) {
   const warnings = [];
-  const empty = () => ({ columns: [], rows: [], warnings });
+  const empty = () => ({ columns: [], rows: [], recordNumbers: [], warnings });
   if (typeof text !== 'string') {
     warnings.push('CSV input must be text');
     return empty();
@@ -27,6 +43,7 @@ export function parseCsv(text) {
     return empty();
   }
   const rows = [];
+  const recordNumbers = [];
   data.slice(1).forEach((fields, index) => {
     if (invalidRows.has(index + 1) || fields.every(value => !value.trim())) return;
     if (fields.length !== columns.length) {
@@ -34,8 +51,9 @@ export function parseCsv(text) {
       return;
     }
     rows.push(fields);
+    recordNumbers.push(index + 2);
   });
-  return { columns, rows, warnings };
+  return { columns, rows, recordNumbers, warnings };
 }
 
 /**
@@ -55,7 +73,11 @@ export function parseCsv(text) {
  *   xTickLabels?: Record<number, string>, warnings: string[]}}
  */
 export function buildPlotData(text, options) {
-  const { columns, rows, warnings } = parseCsv(text);
+  return buildFromParsed(parseCsv(text), options);
+}
+
+export function buildFromParsed(parsed, options) {
+  const { columns, rows, recordNumbers, warnings } = parsed;
   const { xColumns = columns.slice(1), xType = 'category' } = options ?? {};
   const result = {
     valueHeader: columns[0] ?? null,
@@ -80,27 +102,84 @@ export function buildPlotData(text, options) {
       return;
     }
     if (xType === 'category') result.xTickLabels[x] = header;
-    axes.push({ column: columns.indexOf(header), x });
+    axes.push({ column: columns.indexOf(header), x, header});
   });
   const groups = new Map();
+  // Rows that have a name but no numbers at all; reported by name below.
+  const emptyRows = [];
   const counts = new Map();
   const skip = reason => counts.set(reason, (counts.get(reason) || 0) + 1);
-  for (const fields of rows) {
-    const group = fields[0].trim();
-    for (const { column, x } of axes) {
-      if (!group) { skip('group was blank'); continue; }
+  for (const [rowIndex, fields] of rows.entries()) {
+    const label = fields[0].trim();
+    const record = recordNumbers[rowIndex];
+    const key = nameKey(label);
+
+    // Whole row blank except the label: note it and skip to the next row,
+    // instead of counting each blank cell as "Y was blank".
+    if (key && axes.every(({ column }) => !fields[column].trim())) {
+      emptyRows.push({ key, label });
+      continue;
+    }
+
+    for (const { column, x, header } of axes) {
+      if (!key) { skip('group was blank'); continue; }
       const rawY = fields[column].trim();
       if (!rawY) { skip('Y was blank'); continue; }
       const y = Number(rawY);
       if (!numericPattern.test(rawY) || !Number.isFinite(y)) {
         skip('Y was not a finite number'); continue;
       }
-      if (!groups.has(group)) groups.set(group, []);
-      groups.get(group).push([x, y]);
+
+      let entry = groups.get(key);
+      if (!entry) {
+        entry = { label, spellings:new Set(), records: new Set(), values: new Map() };
+        groups.set(key, entry);
+      }
+      entry.spellings.add(label);
+      entry.records.add(record);
+
+      const kept = entry.values.get(x);
+      if (kept) {
+        kept.ignored.push({ y, record });
+      } else {
+        entry.values.set(x, { y, record, header, ignored: []});
+      }
+      //if (!groups.has(group)) groups.set(group, []);
+      //groups.get(group).push([x, y]);
     }
   }
-  result.series = [...groups].sort(([a], [b]) => a.localeCompare(b))
-    .map(([group, points]) => ({ group, points: points.sort((a, b) => a[0] - b[0]) }));
+
+  const entries = [...groups.values()].sort((a,b) => a.label.localeCompare(b.label));
+  for (const entry of entries) {
+    if (entry.records.size > 1) {
+      let spellings = '';   // default: same spelling on every row, so add nothing
+      if (entry.spellings.size > 1) {
+        spellings = ` as ${[...entry.spellings].map(s => `"${s}"`).join(', ')}`;
+      }
+      warnings.push(`"${entry.label}" appears in ${entry.records.size} rows ` +
+        `(records ${[...entry.records].join(', ')})${spellings}; combined into one.`);
+    }
+    for (const { y, record, header, ignored } of entry.values.values()) {
+      if (!ignored.length) continue;
+      const others = ignored.map(o => `${o.y} (record ${o.record})`).join(', ');
+      warnings.push(`"${entry.label}" has ${ignored.length + 1} values for ${header}: ` +
+        `kept ${y} (record ${record}), ignored ${others}.`);
+    }
+  }
+
+  const missing = [...new Set(emptyRows.filter(r => !groups.has(r.key)).map(r => r.label))];
+  if (missing.length) {
+    warnings.push(`${missing.length} ${missing.length === 1 ? 'row has' : 'rows have'} ` +
+      `no data and ${missing.length === 1 ? 'was' : 'were'} left out: ${missing.join(', ')}.`);
+  }
+
+
+  /*result.series = [...groups].sort(([a], [b]) => a.localeCompare(b))
+    .map(([group, points]) => ({ group, points: points.sort((a, b) => a[0] - b[0]) }));*/
+  result.series = entries.map(({ label, values }) => ({
+    group: label,
+    points: [...values].map(([x, { y }]) => [x, y]).sort((a, b) => a[0] - b[0]),
+  }));
   for (const [reason, count] of counts) {
     warnings.push(`${count} ${count === 1 ? 'observation' : 'observations'} skipped: ${reason}`);
   }
