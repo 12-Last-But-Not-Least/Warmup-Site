@@ -51,6 +51,27 @@ test('logTicks stays within a fractional range and handles sub-1 values', () => 
   assert.ok(logTicks(-6, 6, 8).length <= 8);
 });
 
+test('logTicks thins out ticks when less than a decade is visible and 1-9 would crowd', () => {
+  // About 1,600 to 15,000 (the steps-vs-sleep Y axis): 2k..9k plus 10k is 9 ticks, too many for 7.
+  const ticks = logTicks(Math.log10(1600), Math.log10(15000), 7);
+  assert.deepEqual(ticks, [2000, 5000, 10000]);
+});
+
+test('logTicks keeps every multiple 1-9 when they fit', () => {
+  const ticks = logTicks(Math.log10(1.5), Math.log10(6.5), 8);
+  assert.deepEqual(ticks, [2, 3, 4, 5, 6]);
+});
+
+test('logTicks never exceeds maxTicks and always returns something over a sub-decade range', () => {
+  for (const max of [3, 4, 5, 7, 8]) {
+    for (const lo of [-3.3, -0.4, 0.15, 2.7, 5.9]) {
+      const ticks = logTicks(lo, lo + 0.9, max);
+      assert.ok(ticks.length <= max, `${lo} max ${max}: ${ticks}`);
+    }
+  }
+  assert.ok(logTicks(0.1, 0.9, 7).length >= 2);
+});
+
 test('formatLogTick', () => {
   assert.equal(formatLogTick(1), '1');
   assert.equal(formatLogTick(1e6), '1e6');

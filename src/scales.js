@@ -98,7 +98,8 @@ export function niceTicks(min, max, count) {
 /**
  * Tick values for a log axis whose visible t-space range is [tMin, tMax].
  * Always powers of ten; intermediate 2 and 5 (or 1-9) are added when few
- * decades are visible so the axis never looks empty.
+ * decades are visible so the axis never looks empty, but only as many as fit
+ * within `maxTicks` (1-9 crowds up quickly: 2,000 ... 9,000 are close together).
  * @param {number} tMin
  * @param {number} tMax
  * @param {number} [maxTicks]
@@ -106,22 +107,29 @@ export function niceTicks(min, max, count) {
  */
 export function logTicks(tMin, tMax, maxTicks = 8) {
   const span = tMax - tMin;
-  let mults = [1];
-  if (span < 1.5) mults = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-  else if (span < 3.5) mults = [1, 2, 5];
+  // Finest to coarsest; start at the one suited to the span, coarsen until it fits.
+  const levels = [[1, 2, 3, 4, 5, 6, 7, 8, 9], [1, 2, 5], [1]];
+  let level = span < 1.5 ? 0 : span < 3.5 ? 1 : 2;
   const decadeStep = Math.max(1, Math.ceil(span / maxTicks));
 
-  /** @type {number[]} */
-  const out = [];
-  const first = Math.floor(tMin);
-  for (let k = Math.floor(first / decadeStep) * decadeStep; k <= Math.ceil(tMax); k += decadeStep) {
-    for (const m of mults) {
-      const v = m * 10 ** k;
-      const t = Math.log10(v);
-      if (t >= tMin - 1e-9 && t <= tMax + 1e-9) out.push(v);
+  /** @param {number[]} mults */
+  const build = (mults) => {
+    /** @type {number[]} */
+    const out = [];
+    const first = Math.floor(tMin);
+    for (let k = Math.floor(first / decadeStep) * decadeStep; k <= Math.ceil(tMax); k += decadeStep) {
+      for (const m of mults) {
+        const v = m * 10 ** k;
+        const t = Math.log10(v);
+        if (t >= tMin - 1e-9 && t <= tMax + 1e-9) out.push(v);
+      }
     }
-  }
-  return out;
+    return out;
+  };
+
+  let ticks = build(levels[level]);
+  while (ticks.length > maxTicks && level < levels.length - 1) ticks = build(levels[++level]);
+  return ticks;
 }
 
 /**
