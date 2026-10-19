@@ -239,6 +239,13 @@ test('original empty state, examples and automatic two-file loading coordinate w
   for (const id of ['chart-a','chart-b','chart-scatter']) {
     assert.deepEqual([...$(id).querySelectorAll('.chart-image-actions button')].map(b=>b.textContent),['Copy image','Save PNG']);
   }
+  // Y6: one global plot width in the pinned bar instead of one per chart.
+  assert.equal(document.querySelectorAll('#charts .scatter .chart-width select').length, 0);
+  assert.ok($('plot-width').closest('.chart-settings'));
+  $('plot-width').value = '640'; change($('plot-width'));
+  for (const id of ['chart-a','chart-b','chart-scatter']) assert.equal($(id).style.maxWidth, '640px');
+  $('plot-width').value = ''; change($('plot-width'));
+  for (const id of ['chart-a','chart-b','chart-scatter']) assert.equal($(id).style.maxWidth, 'none');
   assert.equal(observers.size,3);
   assert.equal(themeListeners.size,0);
   dom.window.close();

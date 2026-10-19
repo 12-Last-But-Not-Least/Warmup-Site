@@ -1,5 +1,5 @@
 /** Optional, per-chart width and fullscreen controls. */
-export function addLayoutControls(container, onResize = () => {}, initialWidth = '960') {
+export function addLayoutControls(container, onResize = () => {}, initialWidth = '960', { widthControl = true } = {}) {
   const toolbar = container.querySelector('.scatter-toolbar');
   if (!toolbar) return { getWidth: () => initialWidth, destroy() {} };
   const label = document.createElement('label'); label.className = 'chart-width'; label.append('Maximum width ');
@@ -32,7 +32,9 @@ export function addLayoutControls(container, onResize = () => {}, initialWidth =
   };
   const keydown = event => { if (event.key === 'Escape') exitFallback(); };
   document.addEventListener('fullscreenchange', update); document.addEventListener('keydown', keydown);
-  toolbar.append(label, button, status);
+  // The app sets one width for every chart from the pinned bar, so it can turn the per-chart select off.
+  if (widthControl) toolbar.append(label);
+  toolbar.append(button, status);
   update();
   return { getWidth: () => width.value, destroy(preserveFullscreen = false) {
     if (!preserveFullscreen) exitFallback();

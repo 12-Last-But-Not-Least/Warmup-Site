@@ -378,3 +378,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 @media(max-width: 760px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } main { padding: 20px 12px; } .scatter-toolbar { justify-content: flex-start; } }
 
 .chart-settings, .chart-settings-note { max-width: 960px; margin-left: auto; margin-right: auto; }
+
+/* One plot width for every chart, at the right end of the pinned bar (Y6). Hidden on narrow
+   screens, where the bar has no room and charts already fill the available width. */
+.chart-settings .plot-width { margin-left: auto; }
+@media (max-width: 600px) { .chart-settings .plot-width { display: none; } }

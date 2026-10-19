@@ -118,6 +118,7 @@ function paintCharts(preserve = true) {
     const fullNote = note;
     const handle = drawScatter($(ids[i]), { ...input, showMeans: $('show-means').checked && i < 2, showTrend: i === 2 && $('show-trend').checked }, {
       ...states[i], renderer, xScale: chartSettings[i].x, yScale: chartSettings[i].y,
+      maxWidth: $('plot-width').value, widthControl: false, // one width for all charts, set in the pinned bar (Y6)
       onVisibilityChange(hidden) {
         // The redraw replaces the legend, so remember the toggled item if it had focus (M2).
         const focused = document.activeElement;
@@ -162,6 +163,7 @@ for (const button of document.querySelectorAll('[data-renderer]')) button.onclic
 };
 $('show-means').onchange = () => current && paintCharts();
 $('show-trend').onchange = () => current && paintCharts();
+$('plot-width').onchange = () => current && paintCharts();
 
 function tableOptions() { return { source, mode: $('table-mode').value, sortBy: $('table-sort').value, direction: $('table-direction').value, query: $('group-filter').value, excludedGroups: [...hiddenBySource[source]], size: Number($('page-size').value), page }; }
 async function loadPage() {
