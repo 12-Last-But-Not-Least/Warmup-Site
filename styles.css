@@ -393,3 +393,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 /* "Show data table" shares the image-actions row, pinned to its left end (6b). */
 .chart-image-actions .chart-table-link { margin: 0 auto 0 0; }
 .chart-image-buttons { display: inline-flex; gap: 8px; }
+
+/* Y5: on wide screens the filter row (search, line display, means/fit) stays pinned at the top,
+   with the Canvas/SVG bar pinned directly below it. Its height is fixed so the bar knows where to
+   stop; at >= 1024px its controls always fit on one line. Narrow screens keep it unpinned. */
+@media (min-width: 1024px) {
+  :root { --filters-h: 5.625rem; }
+  #charts > .settings { position: sticky; top: 0; z-index: 3; box-sizing: border-box; height: var(--filters-h); flex-wrap: nowrap; }
+  #charts > .chart-settings { top: var(--filters-h); }
+  html:has(#charts:not([hidden])) { scroll-padding-top: calc(var(--filters-h) + var(--settings-h) + 8px); }
+}
