@@ -152,3 +152,15 @@ test('export file names name both datasets, the view and a data fingerprint (M3)
   assert.notEqual(changed.fingerprint, view.fingerprint, 'a different version of the pair gives a different id');
   assert.match(exportFileName({ labels: ['  ', 'Été / 2026 (v2)'], fingerprint: 'abcdef' }, { source: 0, mode: 'detail' }, 1), /^data_vs_ete-2026-v2__f1-obs__1r__abcdef\.csv$/);
 });
+
+test('matched pairs sort by either value column, in both directions (Y3 follow-up)', () => {
+  const m = createModel(...generatedPair(20).map(t => buildPlotData(t)));
+  const table = m.table({ source: 2, mode: 'detail' });
+  assert.deepEqual(table.columns.slice(2), ['Sleep (hours)', 'Daily steps'], 'pairs show the second file, then the first');
+  const col = (opts, i) => m.table({ source: 2, mode: 'detail', ...opts }).rows.map(r => r[i]);
+  const ascending = v => v.every((x, i) => i === 0 || v[i - 1] <= x), descending = v => v.every((x, i) => i === 0 || v[i - 1] >= x);
+  assert.ok(ascending(col({ sortBy: 'second' }, 2)), 'second file value ascending');
+  assert.ok(descending(col({ sortBy: 'second', direction: 'desc' }, 2)), 'second file value descending');
+  assert.ok(ascending(col({ sortBy: 'value' }, 3)), 'first file value ascending');
+  assert.ok(ascending(col({ source: 0, sortBy: 'second' }, 2)), 'single-file sources fall back to their value');
+});

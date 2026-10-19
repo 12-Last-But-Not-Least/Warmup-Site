@@ -176,6 +176,7 @@ async function loadPage() {
     if (version !== pageVersion || client !== active) return;
     page = result.page;
     const head = document.createElement('tr');
+    labelSortOptions(result.columns, tableOptions().mode);
     result.columns.forEach(c => { const th = document.createElement('th'); th.scope = 'col'; th.textContent = c; head.append(th); });
     $('data-table').tHead.replaceChildren(head);
     const fragment = document.createDocumentFragment();
@@ -192,14 +193,22 @@ async function loadPage() {
 function selectSource(index) {
   source = index; page = 0;
   for (const tab of document.querySelectorAll('[data-source]')) tab.setAttribute('aria-pressed', String(Number(tab.dataset.source) === source));
-  loadPage();
+  syncSortOptions(); loadPage();
 }
 for (const b of document.querySelectorAll('[data-source]')) b.onclick = () => selectSource(Number(b.dataset.source));
 // Median, SD, Min and Max only exist for summaries; detail rows fall back to value.
+// The second file's value is a separate column only in matched pairs (All observations).
 function syncSortOptions() {
   const detail = $('table-mode').value === 'detail';
   for (const option of $('table-sort').querySelectorAll('[data-summary]')) option.hidden = option.disabled = detail;
+  for (const option of $('table-sort').querySelectorAll('[data-pairs]')) option.hidden = option.disabled = !(detail && source === 2);
   if ($('table-sort').selectedOptions[0]?.disabled) $('table-sort').value = 'value';
+}
+// Option keys stay fixed; only their labels follow the table's own column names (e.g. "Step Count", "Mean").
+function labelSortOptions(columns, mode) {
+  const option = value => $('table-sort').querySelector(`option[value="${value}"]`);
+  option('value').textContent = mode === 'detail' ? columns.at(-1) : 'Mean';
+  if (mode === 'detail' && columns.length > 3) option('second').textContent = columns[2];
 }
 syncSortOptions();
 for (const id of ['table-mode', 'table-sort', 'table-direction', 'page-size']) $(id).onchange = () => { syncSortOptions(); page = 0; loadPage(); };

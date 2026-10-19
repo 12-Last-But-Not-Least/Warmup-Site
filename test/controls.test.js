@@ -213,6 +213,23 @@ test('original empty state, examples and automatic two-file loading coordinate w
   await until(() => $('data-table').tBodies[0].rows.length===initialRows);
   assert.ok($('chart-b').contains(document.activeElement) || document.activeElement === document.body, 'a toggle not made from the focused button does not move focus');
   assert.ok(!$('chart-a').contains(document.activeElement));
+  // Y3 follow-up: sort options keep fixed keys, labelled by the table's columns.
+  const sortOption = value => $('table-sort').querySelector(`option[value="${value}"]`);
+  document.querySelector('[data-source="2"]').click();
+  await until(() => $('data-table').tHead.rows[0]?.cells.length === 4);
+  assert.equal(sortOption('second').disabled, false);
+  assert.equal(sortOption('second').textContent, 'Hours of Sleep');
+  assert.equal(sortOption('value').textContent, 'Step Count');
+  $('table-sort').value = 'second'; change($('table-sort'));
+  await until(() => { const v = [...$('data-table').tBodies[0].rows].map(r => Number(r.cells[2].textContent)); return v.length && v.every((x, i) => i === 0 || v[i - 1] <= x); });
+  document.querySelector('[data-source="0"]').click();
+  await until(() => $('data-table').tHead.rows[0]?.cells.length === 3);
+  assert.equal(sortOption('second').disabled, true);
+  assert.equal($('table-sort').value, 'value', 'falls back when the second column does not exist');
+  $('table-mode').value = 'group'; change($('table-mode'));
+  await until(() => sortOption('value').textContent === 'Mean');
+  $('table-mode').value = 'detail'; change($('table-mode'));
+  await until(() => $('data-table').tHead.rows[0]?.cells.length === 3);
   for (const example of examples.slice(1)) {
     example.click();
     await until(() => $('task').hidden);

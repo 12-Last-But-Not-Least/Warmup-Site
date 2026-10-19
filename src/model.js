@@ -128,9 +128,11 @@ export function createModel(a, b, names = ['First CSV', 'Second CSV']) {
       const columns = mode === 'detail' ? ['Group', 'Category', ...(pairedSource ? [labels[1], labels[0]] : [labels[source]])] : [mode === 'group' ? 'Group' : 'Category', 'n', 'Mean', 'Median', 'Sample SD', 'Min', 'Max'];
       let rows;
       if (mode === 'detail') {
-        // Summary-only keys (median, sd, ...) have no per-observation meaning, so they sort by value.
+        // 'value' is the first file's value (y); 'second' is the second file's value (x), which only
+        // matched pairs have. Summary-only keys (median, sd, ...) have no per-row meaning, so they sort by value.
         const key = sortBy === 'group' ? (a, b) => a.group.localeCompare(b.group)
           : sortBy === 'category' ? (a, b) => a.category.localeCompare(b.category)
+          : sortBy === 'second' && pairedSource ? (a, b) => a.x - b.x
           : (a, b) => a.y - b.y;
         const sorted = [...records].sort((a, b) => dir * key(a, b) || a.group.localeCompare(b.group) || a.order - b.order);
         rows = sorted.map(r => [r.group, r.category, ...(pairedSource ? [r.x, r.y] : [r.y])]);
