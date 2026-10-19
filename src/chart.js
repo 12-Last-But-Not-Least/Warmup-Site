@@ -325,7 +325,9 @@ export function drawScatter(container, input, options = {}) {
 
   /** @returns {import('./render-common.js').Scene} */
   function buildScene() {
-    const width = Math.max(320, plot.clientWidth || 640);
+    // Floor keeps a usable data area (240 - 96px of margins = 144px) without
+    // overflowing the card on 360px-wide phones, where the plot gets 294px.
+    const width = Math.max(240, plot.clientWidth || 640);
     plotW = width - MARGIN.left - MARGIN.right;
     const left = MARGIN.left;
     const right = MARGIN.left + plotW;
