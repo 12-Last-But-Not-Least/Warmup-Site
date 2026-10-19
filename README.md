@@ -215,7 +215,7 @@ import { setStatsProvider } from './stats.js';
 
 setStatsProvider((points) => ({   // points: [{ x, y }, ...] currently on the chart
   n, r, slope, intercept,         // required; use NaN (don't throw) when undefined
-  r_squared, p_value,             // optional; p_value is added to the corner label
+  r_squared, p_value,             // optional; p_value is added to the r label in the legend
 }));
 setStatsProvider();               // go back to the built-in version
 ```

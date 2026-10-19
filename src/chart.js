@@ -34,7 +34,7 @@ export { linearScale, niceStep, niceTicks, logTicks } from './scales.js';
  * @property {string} yLabel
  * @property {Point[]} points
  * @property {Object<number,string>} [xTickLabels]  // e.g. {0:"Mon",...,6:"Sun"}
- * @property {boolean} [showTrend]   // linear fit line + r in the corner
+ * @property {boolean} [showTrend]   // linear fit line + r in the legend
  * @property {boolean} [showMeans]   // mean marker per distinct x (weekday plots)
  * @property {number}  [jitter]      // horizontal jitter in x units (weekday plots)
  * @property {boolean} [connectGroups] // join each group's points in x order (line chart)
@@ -260,6 +260,10 @@ export function drawScatter(container, input, options = {}) {
   /** @type {import('./render-common.js').Renderer} */
   let renderer = rendererKind === 'svg' ? createSvgRenderer() : createCanvasRenderer();
   let lastHidden = -1;
+  // r/n for the trend line. Shown as HTML in the legend rather than drawn over
+  // the plot, so it can't hide data and is the same text in both renderers.
+  let statText = '';
+  /** @type {HTMLSpanElement | null} */ let trendStatEl = null;
 
   placeMarks();
 
@@ -310,8 +314,7 @@ export function drawScatter(container, input, options = {}) {
 
     /** @type {[number, number][] | null} */
     let trend = null;
-    /** @type {string | null} */
-    let cornerLabel = null;
+    let stat = '';
     if (showTrend && visible.length >= 2) {
       const xy = visible.map((m) => ({ x: m.point.x, y: m.point.y }));
       const stats = computeStats(xy);
@@ -326,11 +329,12 @@ export function drawScatter(container, input, options = {}) {
         }
         if (trend.length < 2) trend = null;
       }
-      cornerLabel = `r = ${Number.isFinite(stats.r) ? stats.r.toFixed(2) : '—'}  (n = ${stats.n})`;
+      stat = `r = ${Number.isFinite(stats.r) ? stats.r.toFixed(2) : '—'}  (n = ${stats.n})`;
       if (typeof stats.p_value === 'number' && Number.isFinite(stats.p_value)) {
-        cornerLabel += `  p = ${stats.p_value < 0.001 ? '<0.001' : stats.p_value.toFixed(3)}`;
+        stat += `  p = ${stats.p_value < 0.001 ? '<0.001' : stats.p_value.toFixed(3)}`;
       }
     }
+    statText = stat;
 
     const lines = [];
     if (connectGroups) {
@@ -358,7 +362,6 @@ export function drawScatter(container, input, options = {}) {
       xLabel,
       yLabel,
       trend,
-      cornerLabel,
       lines,
       marks: visible.map((m) => ({ px: sx.map(m.x), py: sy.map(m.y), slot: m.slot, group: m.group, mark: m })),
       means,
@@ -371,6 +374,8 @@ export function drawScatter(container, input, options = {}) {
     scene = buildScene();
     renderer.draw(scene);
     renderer.setHighlight(highlighted);
+    // render() runs on every pan frame, but r only changes with the legend or scales.
+    if (trendStatEl && trendStatEl.textContent !== statText) trendStatEl.textContent = statText;
   }
 
   // ---- Hover / tooltip ----------------------------------------------------
@@ -589,7 +594,12 @@ export function drawScatter(container, input, options = {}) {
     });
   }
   if (showMeans) legend.append(lineKey('mean', 'Mean'));
-  if (showTrend) legend.append(lineKey('trend', 'Linear fit'));
+  if (showTrend) {
+    const key = lineKey('trend', 'Linear fit');
+    trendStatEl = htmlEl('span', 'trend-stat');
+    key.append(trendStatEl);
+    legend.append(key);
+  }
 
   /** @param {number} slot */
   function markerSwatch(slot) {

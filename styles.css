@@ -238,14 +238,9 @@ html:has(#charts:not([hidden])) { scroll-padding-top: calc(var(--settings-h) + 8
 
 .trend { stroke: var(--text-secondary); stroke-width: 2; stroke-dasharray: 6 4; }
 
-.corner-label {
-  fill: var(--text-primary);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  paint-order: stroke;
-  stroke: var(--surface);
-  stroke-width: 4px;
-}
+/* r and n for the trend line: legend text, so it never covers data. */
+.trend-stat { color: var(--text-primary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.trend-stat:empty { display: none; }
 
 .hover-ring { fill: none; stroke: var(--text-primary); stroke-width: 1.5; pointer-events: none; }
 
