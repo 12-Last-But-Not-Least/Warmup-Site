@@ -8,7 +8,9 @@ export function imageScale(width, height, ratio = 2) {
   return Math.min(Math.max(1, ratio), 2, 4096 / width, 4096 / height, Math.sqrt(16_000_000 / (width * height)));
 }
 
-async function svgImage(svg) {
+// The live chart is styled by styles.css, which a saved file won't have, so copy the
+// computed styles onto a clone before turning it into an <img> for the PNG.
+function styledCopy(svg) {
   const copy = svg.cloneNode(true);
   const originals = [svg, ...svg.querySelectorAll('*')];
   const copies = [copy, ...copy.querySelectorAll('*')];
@@ -18,6 +20,11 @@ async function svgImage(svg) {
     for (const property of properties) copies[index].style.setProperty(property, style.getPropertyValue(property));
   });
   copy.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  return copy;
+}
+
+async function svgImage(svg) {
+  const copy = styledCopy(svg);
   const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(copy)], { type: 'image/svg+xml;charset=utf-8' }));
   try {
     const image = new Image();
@@ -26,11 +33,15 @@ async function svgImage(svg) {
   } finally { URL.revokeObjectURL(url); }
 }
 
-export async function chartPng(container) {
+function chartDrawing(container) {
   const drawing = container.querySelector('.scatter-plot > canvas, .scatter-plot > svg');
   if (!drawing) throw new Error('Load chart data before exporting an image.');
   const rect = drawing.getBoundingClientRect();
-  const width = Math.round(rect.width), plotHeight = Math.round(rect.height);
+  return { drawing, width: Math.round(rect.width), plotHeight: Math.round(rect.height) };
+}
+
+// Title, visible legend entries and caption, laid out apart from the drawing so other export formats can reuse it.
+function exportHeader(container, width) {
   const surface = getComputedStyle(container);
   const font = surface.fontFamily || 'sans-serif';
   const color = surface.getPropertyValue('--text-primary').trim() || surface.color;
@@ -57,6 +68,12 @@ export async function chartPng(container) {
   const legendCount = container.querySelector('.legend-count')?.textContent;
   const caption = [container.dataset.exportNote, legendCount ? `Legend page ${legendCount}` : ''].filter(Boolean).join(' · ');
   const header = (legend.length ? y + 18 : 40) + (caption ? 20 : 0);
+  return { font, color, background, title, entries, caption, header, padding };
+}
+
+export async function chartPng(container) {
+  const { drawing, width, plotHeight } = chartDrawing(container);
+  const { font, color, background, title, entries, caption, header, padding } = exportHeader(container, width);
   const height = plotHeight + header + padding;
   const scale = imageScale(width, height, window.devicePixelRatio || 1);
   const canvas = document.createElement('canvas');
@@ -82,6 +99,13 @@ export async function chartPng(container) {
   return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('The chart image could not be created.')), 'image/png'));
 }
 
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a'); link.href = url; link.download = fileName;
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export function addImageActions(container) {
   const actions = document.createElement('div'); actions.className = 'chart-image-actions';
   const status = document.createElement('span'); status.className = 'chart-image-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
@@ -103,10 +127,8 @@ export function addImageActions(container) {
   save.onclick = async () => {
     save.disabled = true;
     try {
-      const blob = await chartPng(container), url = URL.createObjectURL(blob);
-      const link = document.createElement('a'); link.href = url; link.download = imageFileName(container.querySelector('h2')?.textContent);
-      document.body.append(link); link.click(); link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000); message('PNG download started.');
+      downloadBlob(await chartPng(container), imageFileName(container.querySelector('h2')?.textContent));
+      message('PNG download started.');
     } catch (error) { message(`Could not save the image: ${error.message}`); }
     finally { save.disabled = false; }
   };
