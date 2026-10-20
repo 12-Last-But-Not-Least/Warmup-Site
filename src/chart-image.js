@@ -1,6 +1,6 @@
-/** PNG exports of the current chart view, including its title and visible legend. */
-export function imageFileName(title) {
-  return `${String(title || 'chart').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 100) || 'chart'}.png`;
+/** PNG and SVG exports of the current chart view, including its title and visible legend. */
+export function imageFileName(title, extension = 'png') {
+  return `${String(title || 'chart').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 100) || 'chart'}.${extension}`;
 }
 
 export function imageScale(width, height, ratio = 2) {
@@ -9,7 +9,7 @@ export function imageScale(width, height, ratio = 2) {
 }
 
 // The live chart is styled by styles.css, which a saved file won't have, so copy the
-// computed styles onto a clone before turning it into an <img> for the PNG.
+// computed styles onto a clone. Used by both the PNG (via an <img>) and the SVG export.
 function styledCopy(svg) {
   const copy = svg.cloneNode(true);
   const originals = [svg, ...svg.querySelectorAll('*')];
@@ -20,6 +20,7 @@ function styledCopy(svg) {
     for (const property of properties) copies[index].style.setProperty(property, style.getPropertyValue(property));
   });
   copy.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  copy.querySelectorAll('.hover-ring').forEach(ring => ring.remove());
   return copy;
 }
 
@@ -40,7 +41,7 @@ function chartDrawing(container) {
   return { drawing, width: Math.round(rect.width), plotHeight: Math.round(rect.height) };
 }
 
-// Title, visible legend entries and caption, laid out apart from the drawing so other export formats can reuse it.
+// Title, visible legend entries and caption, positioned once so PNG and SVG exports match.
 function exportHeader(container, width) {
   const surface = getComputedStyle(container);
   const font = surface.fontFamily || 'sans-serif';
@@ -99,6 +100,40 @@ export async function chartPng(container) {
   return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('The chart image could not be created.')), 'image/png'));
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function svgNode(tag, attrs, parent) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+  parent?.append(node);
+  return node;
+}
+
+/** A standalone vector file of the chart. Only possible when the chart is drawn with the SVG renderer. */
+export function chartSvg(container) {
+  const { drawing, width, plotHeight } = chartDrawing(container);
+  if (drawing.tagName.toLowerCase() !== 'svg') throw new Error('switch this chart to SVG first. Canvas charts can only be saved as PNG.');
+  const { font, color, background, title, entries, caption, header, padding } = exportHeader(container, width);
+  const height = plotHeight + header + padding;
+  const root = svgNode('svg', { width, height, viewBox: `0 0 ${width} ${height}`, 'font-family': font });
+  svgNode('rect', { width, height, fill: background }, root);
+  svgNode('text', { x: padding, y: 25, fill: color, 'font-size': 16, 'font-weight': 600 }, root).textContent = title;
+  // Same marker shapes and offsets the PNG export draws.
+  for (const entry of entries) {
+    const marker = svgNode('g', { transform: `translate(${entry.x + 4},${entry.y - 4})` }, root);
+    if (entry.line) svgNode('line', { x1: -4, x2: 6, y1: 0, y2: 0, stroke: entry.color, 'stroke-width': 2, ...(entry.dashed ? { 'stroke-dasharray': '4 2' } : {}) }, marker);
+    else if (entry.path) svgNode('path', { d: entry.path, fill: entry.color }, marker);
+    else svgNode('circle', { r: 4, fill: entry.color }, marker);
+    svgNode('text', { x: entry.x + 15, y: entry.y, fill: color, 'font-size': 12 }, root).textContent = entry.text;
+  }
+  if (caption) svgNode('text', { x: padding, y: header - 8, fill: color, 'font-size': 11 }, root).textContent = caption;
+  const plot = styledCopy(drawing);
+  plot.removeAttribute('xmlns'); // createElementNS already gives it the namespace; a second copy breaks strict XML parsers
+  plot.setAttribute('x', '0'); plot.setAttribute('y', String(header));
+  plot.setAttribute('width', String(width)); plot.setAttribute('height', String(plotHeight));
+  root.append(plot);
+  return new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n', new XMLSerializer().serializeToString(root)], { type: 'image/svg+xml;charset=utf-8' });
+}
+
 function downloadBlob(blob, fileName) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a'); link.href = url; link.download = fileName;
@@ -111,6 +146,8 @@ export function addImageActions(container) {
   const status = document.createElement('span'); status.className = 'chart-image-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy image';
   const save = document.createElement('button'); save.type = 'button'; save.textContent = 'Save PNG';
+  const saveSvg = document.createElement('button'); saveSvg.type = 'button'; saveSvg.textContent = 'Save SVG';
+  saveSvg.title = 'Vector file for slides or papers. Needs the SVG renderer.';
   let messageTimer;
   const message = text => { clearTimeout(messageTimer); status.textContent = text; messageTimer = setTimeout(() => { status.textContent = ''; }, 4000); };
   copy.disabled = !navigator.clipboard?.write || typeof ClipboardItem === 'undefined';
@@ -132,8 +169,14 @@ export function addImageActions(container) {
     } catch (error) { message(`Could not save the image: ${error.message}`); }
     finally { save.disabled = false; }
   };
-  // Grouped so the two image buttons wrap together on narrow screens instead of splitting.
-  const buttons = document.createElement('span'); buttons.className = 'chart-image-buttons'; buttons.append(copy, save);
+  saveSvg.onclick = () => {
+    try {
+      downloadBlob(chartSvg(container), imageFileName(container.querySelector('h2')?.textContent, 'svg'));
+      message('SVG download started.');
+    } catch (error) { message(`Could not save the SVG: ${error.message}`); }
+  };
+  // Grouped so the image buttons wrap together on narrow screens instead of splitting.
+  const buttons = document.createElement('span'); buttons.className = 'chart-image-buttons'; buttons.append(copy, save, saveSvg);
   actions.append(status, buttons); container.append(actions);
   return () => { clearTimeout(messageTimer); actions.remove(); };
 }
