@@ -14,7 +14,7 @@
  */
 import { computeStats } from './stats.js';
 import {
-  categoryLabelStep, formatLogTick, formatTick, fromT, isPlottable, logTicks, makeScale, niceTicks, paddedExtent,
+  formatLogTick, formatTick, fromT, isPlottable, logTicks, makeScale, niceTicks, paddedExtent,
 } from './scales.js';
 import { MEAN_HALF_WIDTH, POINT_R, colorFor, shapePath } from './render-common.js';
 import { createCanvasRenderer } from './render-canvas.js';
@@ -34,7 +34,7 @@ export { linearScale, niceStep, niceTicks, logTicks } from './scales.js';
  * @property {string} yLabel
  * @property {Point[]} points
  * @property {Object<number,string>} [xTickLabels]  // e.g. {0:"Mon",...,6:"Sun"}
- * @property {boolean} [showTrend]   // linear fit line + r in the legend
+ * @property {boolean} [showTrend]   // linear fit line + r in the corner
  * @property {boolean} [showMeans]   // mean marker per distinct x (weekday plots)
  * @property {number}  [jitter]      // horizontal jitter in x units (weekday plots)
  * @property {boolean} [connectGroups] // join each group's points in x order (line chart)
@@ -76,7 +76,6 @@ const HEIGHT = 360;
 const HIT_RADIUS = 24;        // px; hover target is much bigger than the mark
 const LOG_MEAN_HALF_PX = 12;  // mean bars have no fixed width in x units on a log axis
 const TREND_SAMPLES = 64;     // a straight line is a curve on a log axis
-const TICK_FONT_PX = 12;      // tick label size; keep in step with .tick-label (styles.css) and render-canvas.js
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -109,24 +108,6 @@ function htmlEl(tag, className, text) {
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
-}
-
-/** @type {CanvasRenderingContext2D | null} offscreen context for measuring tick labels */
-let measureCtx = null;
-
-/**
- * Width in px of the widest label at the tick-label font. Labels come from
- * uploaded CSVs, so they're measured rather than estimated per character.
- * @param {string[]} labels
- * @param {string} fontFamily
- */
-function widestLabelPx(labels, fontFamily) {
-  const ctx = measureCtx ??= document.createElement('canvas').getContext('2d');
-  // No 2D context: assume every character is as wide as the font size, which
-  // is wider than any glyph measured (uppercase W is ~11.6px at 12px).
-  if (!ctx) return Math.max(0, ...labels.map((l) => l.length)) * TICK_FONT_PX;
-  ctx.font = `${TICK_FONT_PX}px ${fontFamily}`;
-  return Math.max(0, ...labels.map((l) => ctx.measureText(l).width));
 }
 
 /**
@@ -168,9 +149,6 @@ export function drawScatter(container, input, options = {}) {
   // Categorical x (weekday names) has no meaningful log scale.
   const xScalable = !xTickLabels;
   if (!xScalable) kinds.x = 'linear';
-  const widestCategoryPx = xTickLabels
-    ? widestLabelPx(Object.values(xTickLabels), getComputedStyle(container).fontFamily)
-    : 0;
 
   container.replaceChildren();
   container.classList.add('scatter');
@@ -282,10 +260,6 @@ export function drawScatter(container, input, options = {}) {
   /** @type {import('./render-common.js').Renderer} */
   let renderer = rendererKind === 'svg' ? createSvgRenderer() : createCanvasRenderer();
   let lastHidden = -1;
-  // r/n for the trend line. Shown as HTML in the legend rather than drawn over
-  // the plot, so it can't hide data and is the same text in both renderers.
-  let statText = '';
-  /** @type {HTMLSpanElement | null} */ let trendStatEl = null;
 
   placeMarks();
 
@@ -307,13 +281,10 @@ export function drawScatter(container, input, options = {}) {
     const scale = isX ? sx : sy;
     const px = isX ? plotW : plotH;
     if (isX && xTickLabels) {
-      // When the labels would overlap, label every step-th category (by index,
-      // so labels don't jump while panning). Gridlines still mark every category.
-      const step = categoryLabelStep(Math.abs(scale.map(1) - scale.map(0)), widestCategoryPx);
       return Object.entries(xTickLabels)
         .map(([k, text]) => ({ v: Number(k), text }))
         .filter((t) => t.v >= t0 && t.v <= t1)
-        .map(({ v, text }) => ({ px: scale.map(v), text: v % step === 0 ? text : '' }));
+        .map(({ v, text }) => ({ px: scale.map(v), text }));
     }
     if (kind === 'log') {
       return logTicks(t0, t1, Math.max(3, Math.round(px / (isX ? 70 : 40))))
@@ -325,9 +296,7 @@ export function drawScatter(container, input, options = {}) {
 
   /** @returns {import('./render-common.js').Scene} */
   function buildScene() {
-    // Floor keeps a usable data area (240 - 96px of margins = 144px) without
-    // overflowing the card on 360px-wide phones, where the plot gets 294px.
-    const width = Math.max(240, plot.clientWidth || 640);
+    const width = Math.max(320, plot.clientWidth || 640);
     plotW = width - MARGIN.left - MARGIN.right;
     const left = MARGIN.left;
     const right = MARGIN.left + plotW;
@@ -341,7 +310,8 @@ export function drawScatter(container, input, options = {}) {
 
     /** @type {[number, number][] | null} */
     let trend = null;
-    let stat = '';
+    /** @type {string | null} */
+    let cornerLabel = null;
     if (showTrend && visible.length >= 2) {
       const xy = visible.map((m) => ({ x: m.point.x, y: m.point.y }));
       const stats = computeStats(xy);
@@ -356,12 +326,11 @@ export function drawScatter(container, input, options = {}) {
         }
         if (trend.length < 2) trend = null;
       }
-      stat = `r = ${Number.isFinite(stats.r) ? stats.r.toFixed(2) : '—'}  (n = ${stats.n})`;
+      cornerLabel = `r = ${Number.isFinite(stats.r) ? stats.r.toFixed(2) : '—'}  (n = ${stats.n})`;
       if (typeof stats.p_value === 'number' && Number.isFinite(stats.p_value)) {
-        stat += `  p = ${stats.p_value < 0.001 ? '<0.001' : stats.p_value.toFixed(3)}`;
+        cornerLabel += `  p = ${stats.p_value < 0.001 ? '<0.001' : stats.p_value.toFixed(3)}`;
       }
     }
-    statText = stat;
 
     const lines = [];
     if (connectGroups) {
@@ -389,6 +358,7 @@ export function drawScatter(container, input, options = {}) {
       xLabel,
       yLabel,
       trend,
+      cornerLabel,
       lines,
       marks: visible.map((m) => ({ px: sx.map(m.x), py: sy.map(m.y), slot: m.slot, group: m.group, mark: m })),
       means,
@@ -401,8 +371,6 @@ export function drawScatter(container, input, options = {}) {
     scene = buildScene();
     renderer.draw(scene);
     renderer.setHighlight(highlighted);
-    // render() runs on every pan frame, but r only changes with the legend or scales.
-    if (trendStatEl && trendStatEl.textContent !== statText) trendStatEl.textContent = statText;
   }
 
   // ---- Hover / tooltip ----------------------------------------------------
@@ -621,12 +589,7 @@ export function drawScatter(container, input, options = {}) {
     });
   }
   if (showMeans) legend.append(lineKey('mean', 'Mean'));
-  if (showTrend) {
-    const key = lineKey('trend', 'Linear fit');
-    trendStatEl = htmlEl('span', 'trend-stat');
-    key.append(trendStatEl);
-    legend.append(key);
-  }
+  if (showTrend) legend.append(lineKey('trend', 'Linear fit'));
 
   /** @param {number} slot */
   function markerSwatch(slot) {

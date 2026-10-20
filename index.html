@@ -13,6 +13,12 @@
       <p id="status" class="subtitle">Upload two CSV files to see the charts. Each file gets its own line chart, and the third chart plots one against the other.</p>
     </header>
 
+    <div class="renderer-toggle" role="group" aria-label="Chart renderer">
+      <span>Render charts with:</span>
+      <button type="button" id="renderer-canvas" data-renderer="canvas" aria-pressed="true">Canvas</button>
+      <button type="button" id="renderer-svg" data-renderer="svg" aria-pressed="false">SVG</button>
+    </div>
+
     <section class="card upload" aria-label="Upload data">
       <label class="upload-field">
         <span>First CSV (e.g. steps)</span>
@@ -38,15 +44,6 @@
 
     <!-- Hidden until both files load successfully. -->
     <div id="charts" hidden>
-      <!-- Sticky, so the renderer can be switched while looking at any of the charts. -->
-      <div class="chart-settings">
-        <div class="renderer-toggle" role="group" aria-label="Chart renderer">
-          <span>Render charts with:</span>
-          <button type="button" id="renderer-canvas" data-renderer="canvas" aria-pressed="true">Canvas</button>
-          <button type="button" id="renderer-svg" data-renderer="svg" aria-pressed="false">SVG</button>
-        </div>
-      </div>
-      <p class="chart-settings-note">Same charts, drawn two ways: Canvas paints pixels, SVG builds shapes you can inspect.</p>
       <section id="chart-a" class="card"></section>
       <section id="chart-b" class="card"></section>
       <section id="chart-scatter" class="card"></section>

@@ -25,6 +25,7 @@
  * @property {string} xLabel
  * @property {string} yLabel
  * @property {[number, number][] | null} trend     polyline
+ * @property {string | null} cornerLabel
  * @property {{group: string, slot: number, pts: [number, number][]}[]} lines
  * @property {SceneMark[]} marks
  * @property {SceneMean[]} means

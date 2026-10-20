@@ -109,7 +109,6 @@ function showWarnings(messages) {
  * @param {string} nameA
  * @param {string} textB  second file, plotted on X in the scatter
  * @param {string} nameB
- * @returns {boolean} true when the charts were drawn
  */
 function showCharts(textA, nameA, textB, nameB) {
   const a = buildPlotData(textA);
@@ -124,7 +123,7 @@ function showCharts(textA, nameA, textB, nameB) {
   if (a.series.length === 0 || b.series.length === 0) {
     chartsEl.hidden = true; // don't leave the previous charts on screen
     statusEl.textContent = 'One of the files has no usable data. See the messages below.';
-    return false;
+    return;
   }
 
   const scatter = toScatterInput(a, b);
@@ -138,7 +137,6 @@ function showCharts(textA, nameA, textB, nameB) {
   const groups = new Set([...a.series, ...b.series].map((s) => s.group)).size;
   statusEl.textContent = `Showing ${nameA} and ${nameB}: ${groups} groups, `
     + `${scatter.points.length} matched pairs on the scatter plot.`;
-  return true;
 }
 
 /**
@@ -177,7 +175,6 @@ for (const button of document.querySelectorAll('button[data-renderer]')) {
 function showError(err) {
   chartsEl.hidden = true;
   chartHandles = [];
-  markCurrentExample(null);
   showWarnings([`Couldn't read the files: ${err instanceof Error ? err.message : String(err)}`]);
   statusEl.textContent = 'Something went wrong reading the files. See the message below.';
 }
@@ -189,7 +186,6 @@ async function onFilesChanged() {
     statusEl.textContent = 'Now pick the other file to see the charts.';
     return;
   }
-  markCurrentExample(null); // the uploaded pair replaces whatever example was showing
   try {
     showCharts(await fileA.text(), fileA.name, await fileB.text(), fileB.name);
   } catch (err) {
@@ -202,17 +198,6 @@ fileInputB.addEventListener('change', onFilesChanged);
 
 // ---- Example buttons ------------------------------------------------------
 // Each button names two CSV files in data/ (data-a and data-b attributes).
-
-/**
- * Mark the example whose charts are on screen (aria-current), or none.
- * @param {Element | null} current
- */
-function markCurrentExample(current) {
-  for (const b of document.querySelectorAll('button[data-a][data-b]')) {
-    if (b === current) b.setAttribute('aria-current', 'true');
-    else b.removeAttribute('aria-current');
-  }
-}
 
 /** @param {string} path */
 async function fetchText(path) {
@@ -230,8 +215,7 @@ for (const button of document.querySelectorAll('button[data-a][data-b]')) {
     fileInputB.value = '';
     try {
       const [textA, textB] = await Promise.all([fetchText(pathA), fetchText(pathB)]);
-      const drawn = showCharts(textA, pathA.split('/').pop() ?? pathA, textB, pathB.split('/').pop() ?? pathB);
-      markCurrentExample(drawn ? button : null);
+      showCharts(textA, pathA.split('/').pop() ?? pathA, textB, pathB.split('/').pop() ?? pathB);
     } catch (err) {
       showError(err);
     }

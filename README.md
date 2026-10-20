@@ -50,7 +50,7 @@ Or click one of the **example** buttons to load a ready-made pair of files.
 | Move around | Click and drag |
 | Go back to the full view | Double-click the chart, or press **Reset view** |
 | See the raw numbers | Open **Show data table** under a chart |
-| Switch between Canvas and SVG drawing | Use the **Render charts with** buttons above the charts; they stay in view as you scroll (Canvas is the default) |
+| Switch between Canvas and SVG drawing | Use the **Render charts with** buttons at the top (Canvas is the default) |
 | Use a log scale | Pick **Log** in a chart's **Y scale** (or **X scale**) menu. Each axis is set separately |
 
 **About log scale:** a log axis can't show 0 or negative numbers. Those points are
@@ -215,7 +215,7 @@ import { setStatsProvider } from './stats.js';
 
 setStatsProvider((points) => ({   // points: [{ x, y }, ...] currently on the chart
   n, r, slope, intercept,         // required; use NaN (don't throw) when undefined
-  r_squared, p_value,             // optional; p_value is added to the r label in the legend
+  r_squared, p_value,             // optional; p_value is added to the corner label
 }));
 setStatsProvider();               // go back to the built-in version
 ```
