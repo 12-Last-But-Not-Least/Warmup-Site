@@ -6,10 +6,11 @@
   --surface: #fcfcfb;
   --text-primary: #0b0b0b;
   --text-secondary: #52514e;
-  --text-muted: #898781;
+  --text-muted: #74736d; /* 4.6:1 on --surface, 4.5:1 on --page (WCAG AA for small text) */
   --grid: #e1e0d9;
   --axis: #c3c2b7;
   --border: rgba(11, 11, 11, 0.10);
+  --settings-h: 2.75rem; /* sticky chart-settings bar; rem so it grows with text size */
 
   --series-1: #2a78d6; /* blue */
   --series-2: #eb6834; /* orange */
@@ -29,6 +30,7 @@
     --surface: #1a1a19;
     --text-primary: #ffffff;
     --text-secondary: #c3c2b7;
+    --text-muted: #898781;
     --grid: #2c2c2a;
     --axis: #383835;
     --border: rgba(255, 255, 255, 0.10);
@@ -48,6 +50,7 @@
   --surface: #1a1a19;
   --text-primary: #ffffff;
   --text-secondary: #c3c2b7;
+  --text-muted: #898781;
   --grid: #2c2c2a;
   --axis: #383835;
   --border: rgba(255, 255, 255, 0.10);
@@ -153,25 +156,61 @@ h1 { margin: 0 0 4px; font-size: 1.6rem; }
 .scatter-plot.dragging { cursor: grabbing; }
 
 .scatter-scale { font-size: 0.8rem; color: var(--text-secondary); }
+/* Same size and shape as the Reset view button so the toolbar reads as one set. */
 .scatter-scale select {
   font: inherit;
   color: var(--text-primary);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 6px;
+  padding: 4px 6px; /* one more px than the button: native selects ignore line-height */
+  cursor: pointer;
 }
+.scatter-scale select:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
 
-.renderer-toggle { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; color: var(--text-secondary); }
+/* Canvas/SVG choice drawn as one segmented control: the two buttons share a
+   border, and the pressed one is filled so the state doesn't rely on weight alone. */
+/* Sits at the top of #charts and stays in view while scrolling through them. */
+.chart-settings {
+  position: sticky;
+  top: 0;
+  z-index: 2; /* above .scatter-tooltip (z-index 1) */
+  display: flex;
+  align-items: center;
+  min-height: var(--settings-h);
+  padding: 6px 0;
+  background: var(--page);
+}
+/* Keep keyboard-focused chart controls from landing under the sticky bar. */
+html:has(#charts:not([hidden])) { scroll-padding-top: calc(var(--settings-h) + 8px); }
+.chart-settings-note { margin: 0 0 12px; font-size: 0.85rem; color: var(--text-secondary); }
+
+.renderer-toggle { display: flex; align-items: center; white-space: nowrap; color: var(--text-secondary); }
+.renderer-toggle > span { margin-right: 8px; }
 .renderer-toggle button {
   font: inherit;
   color: var(--text-secondary);
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 2px 10px;
+  border: 1px solid var(--axis);
+  padding: 2px 12px;
   cursor: pointer;
 }
-.renderer-toggle button[aria-pressed="true"] { color: var(--text-primary); border-color: var(--text-muted); font-weight: 600; }
+.renderer-toggle button:first-of-type { border-radius: 6px 0 0 6px; }
+.renderer-toggle button:last-of-type { border-radius: 0 6px 6px 0; margin-left: -1px; }
+.renderer-toggle button:hover { color: var(--text-primary); }
+/* One "this is active" look: the chosen renderer and the example on screen. */
+.renderer-toggle button[aria-pressed="true"],
+.examples button[aria-current="true"] {
+  color: var(--surface);
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+  font-weight: 600; /* still visible when forced-colors (high contrast) replaces the fill */
+}
+.renderer-toggle button:focus-visible {
+  position: relative; /* keep the ring above the neighbouring segment */
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
 
 /* ---------- SVG marks ---------- */
 .grid line { stroke: var(--grid); stroke-width: 1; }

@@ -91,7 +91,7 @@ const MARGIN = { top: 20, right: 24, bottom: 52, left: 72 };
 const HEIGHT = 360;
 const HIT_RADIUS = 24;        // px; hover target is much bigger than the mark
 const LOG_MEAN_HALF_PX = 12;  // mean bars have no fixed width in x units on a log axis
-const TICK_FONT_PX = 12;
+const TICK_FONT_PX = 12;      // tick label size; keep in step with .tick-label (styles.css) and render-canvas.js
 const TREND_SAMPLES = 64;     // a straight line is a curve on a log axis
 
 // ---------------------------------------------------------------------------
@@ -296,6 +296,8 @@ export function drawScatter(container, input, options = {}) {
   /** @type {import('./render-common.js').Scene | null} */ let scene = null;
   /** @type {import('./render-common.js').Renderer} */
   let renderer = rendererKind === 'svg' ? createSvgRenderer() : createCanvasRenderer();
+  // r/n for the trend line. Shown as HTML in the legend rather than drawn over
+  // the plot, so it can't hide data and is the same text in both renderers.
   let statText = '';
   /** @type {HTMLSpanElement | null} */ let trendStatEl = null;
   let lastHidden = -1;
@@ -342,6 +344,8 @@ export function drawScatter(container, input, options = {}) {
 
   /** @returns {import('./render-common.js').Scene} */
   function buildScene() {
+    // Floor keeps a usable data area (240 - 96px of margins = 144px) without
+    // overflowing the card on 360px-wide phones, where the plot gets 294px.
     const width = Math.max(240, plot.clientWidth || 640);
     const expanded = document.fullscreenElement === container || container.classList.contains('chart-expanded');
     const height = expanded ? Math.max(HEIGHT, window.innerHeight - 210 - legend.clientHeight) : HEIGHT;
@@ -424,6 +428,7 @@ export function drawScatter(container, input, options = {}) {
     scene = buildScene();
     renderer.draw(scene);
     renderer.setHighlight(highlighted);
+    // render() runs on every pan frame, but r only changes with the legend or scales.
     if (trendStatEl && trendStatEl.textContent !== statText) trendStatEl.textContent = statText;
   }
 
