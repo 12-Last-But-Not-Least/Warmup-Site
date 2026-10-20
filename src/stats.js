@@ -1,6 +1,7 @@
 // @ts-check
 /**
- * Simple statistics helpers used by the chart (trend line + correlation).
+ * Simple statistics helpers: trend line + correlation for the chart, and
+ * summary statistics grouped by row label or column.
  * Placeholder version — the stats owner can swap in their own as long as the
  * signatures stay the same.
  */

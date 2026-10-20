@@ -145,6 +145,17 @@ export function createCanvasRenderer() {
       ctx.stroke();
     }
     ctx.restore();
+
+    if (scene.cornerLabel) {
+      ctx.font = `13px ${font}`;
+      ctx.textAlign = 'right';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = css('--surface');
+      ctx.strokeText(scene.cornerLabel, right - 8, top + 16);
+      ctx.fillStyle = css('--text-primary');
+      ctx.fillText(scene.cornerLabel, right - 8, top + 16);
+    }
   }
 
   // Colors are read at draw time, so repaint when the OS theme flips.

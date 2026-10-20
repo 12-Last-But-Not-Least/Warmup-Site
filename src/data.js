@@ -22,20 +22,25 @@ export function nameKey(name) {
  * Read a header-based CSV without guessing types or changing cell contents.
  * Column names are trimmed and must be nonempty and unique (case-sensitive).
  * Rows contain strings in column order, allowing a UI to offer column selectors.
+ * Changes: Now also returns rowNumbers, where rowNumbers[i] is the row in the file
+ * that rows[i] came from (the header is row 1). Skipped rows make array
+ * positions drift from the file's row numbers, so warnings need this to
+ * point at the right row.
  * @param {string} text
- * @returns {{columns: string[], rows: string[][], recordNumbers: number[], warnings: string[]}}
+ * @param {string} text
+ * @returns {{columns: string[], rows: string[][], rowNumbers: number[], warnings: string[]}}
  */
 export function parseCsv(text) {
   const warnings = [];
-  const empty = () => ({ columns: [], rows: [], recordNumbers: [], warnings });
+  const empty = () => ({ columns: [], rows: [], rowNumbers: [], warnings });
   if (typeof text !== 'string') {
     warnings.push('CSV input must be text');
     return empty();
   }
-  // Keep record indexes intact so warnings refer to the original CSV records.
+  // Keep row indexes intact so warnings refer to the original CSV rows.
   const { data, errors } = Papa.parse(text, { delimiter: ',' });
   const invalidRows = new Set(errors.map(error => error.row));
-  warnings.push(...errors.map(error => `CSV record ${error.row + 1} skipped: ${error.message}`));
+  warnings.push(...errors.map(error => `CSV row ${error.row + 1} skipped: ${error.message}`));
   const columns = data[0]?.map(value => value.trim());
   if (invalidRows.has(0) || !columns || columns.some(column => !column) ||
       new Set(columns).size !== columns.length) {
@@ -43,17 +48,17 @@ export function parseCsv(text) {
     return empty();
   }
   const rows = [];
-  const recordNumbers = [];
+  const rowNumbers = [];
   data.slice(1).forEach((fields, index) => {
     if (invalidRows.has(index + 1) || fields.every(value => !value.trim())) return;
     if (fields.length !== columns.length) {
-      warnings.push(`CSV record ${index + 2} skipped: wrong number of fields`);
+      warnings.push(`CSV row ${index + 2} skipped: wrong number of fields`);
       return;
     }
     rows.push(fields);
-    recordNumbers.push(index + 2);
+    rowNumbers.push(index + 2);
   });
-  return { columns, rows, recordNumbers, warnings };
+  return { columns, rows, rowNumbers, warnings };
 }
 
 /**
@@ -65,19 +70,23 @@ export function parseCsv(text) {
  * valueHeader preserves the top-left header. Categorical X text is preserved
  * in xTickLabels. Repeated group rows are combined without aggregation.
  * Returns warnings rather than throwing for invalid CSV or column selections.
+ * 
+ * Changes: repeated groups: rows whose labels match after nameKey() (e.g.
+ * "Jay", "jay") are combined into one series, labelled with the first
+ * spelling. If two rows give a value for the same column, the first is kept
+ * and the rest are ignored. Both cases produce a warning.
+ *
+ * New, empty rows: a row with a label but no data in any column is left out
+ * and reported by name, unless the same label has data in another row.
  * @param {string} text
  * @param {{xColumns?: string[],
  *   xType?: 'number' | 'category'}} [options]
  * @returns {{series: {group: string, points: [number, number][]}[],
  *   valueHeader: string | null, xType: 'number' | 'category',
- *   xTickLabels?: Record<number, string>, warnings: string[]}}
+ *   xTickLabels?: row<number, string>, warnings: string[]}}
  */
 export function buildPlotData(text, options) {
-  return buildFromParsed(parseCsv(text), options);
-}
-
-export function buildFromParsed(parsed, options) {
-  const { columns, rows, recordNumbers, warnings } = parsed;
+  const { columns, rows, rowNumbers, warnings } = parseCsv(text);
   const { xColumns = columns.slice(1), xType = 'category' } = options ?? {};
   const result = {
     valueHeader: columns[0] ?? null,
@@ -93,7 +102,6 @@ export function buildFromParsed(parsed, options) {
   if (!validHeaders) warnings.push('Select unique existing X headers after the first column');
   if (!validHeaders || !['number', 'category'].includes(xType)) return result;
 
-  // Resolve X once per selected header, rather than once per data cell.
   const axes = [];
   xColumns.forEach((header, index) => {
     const x = xType === 'category' ? index : Number(header);
@@ -105,14 +113,24 @@ export function buildFromParsed(parsed, options) {
     axes.push({ column: columns.indexOf(header), x, header});
   });
   const groups = new Map();
-  // Rows that have a name but no numbers at all; reported by name below.
+
+  // Rows that have a name but no numbers at all
   const emptyRows = [];
-  const counts = new Map();
-  const skip = reason => counts.set(reason, (counts.get(reason) || 0) + 1);
+  const skipped = new Map();
+  const skip = (reason, where) => {
+    if (!skipped.has(reason)) skipped.set(reason, []);
+    skipped.get(reason).push(where);
+  };
+
   for (const [rowIndex, fields] of rows.entries()) {
     const label = fields[0].trim();
-    const record = recordNumbers[rowIndex];
+    const row = rowNumbers[rowIndex];
     const key = nameKey(label);
+
+    if (!key) {
+      skip('noLabel', `row ${row}`);
+      continue;
+    }
 
     // Whole row blank except the label: note it and skip to the next row,
     // instead of counting each blank cell as "Y was blank".
@@ -124,48 +142,69 @@ export function buildFromParsed(parsed, options) {
     for (const { column, x, header } of axes) {
       if (!key) { skip('group was blank'); continue; }
       const rawY = fields[column].trim();
-      if (!rawY) { skip('Y was blank'); continue; }
+      //more descriptive errors
+      if (!rawY) { skip('blank', `${label} (${header})`); continue; }
       const y = Number(rawY);
       if (!numericPattern.test(rawY) || !Number.isFinite(y)) {
-        skip('Y was not a finite number'); continue;
+        skip('notNumber', `${label} (${header}: "${rawY}")`); continue;
       }
 
       let entry = groups.get(key);
       if (!entry) {
-        entry = { label, spellings:new Set(), records: new Set(), values: new Map() };
+        entry = { label, spellings:new Set(), rows: new Set(), values: new Map() };
         groups.set(key, entry);
       }
       entry.spellings.add(label);
-      entry.records.add(record);
+      entry.rows.add(row);
 
       const kept = entry.values.get(x);
       if (kept) {
-        kept.ignored.push({ y, record });
+        kept.ignored.push({ y, row });
       } else {
-        entry.values.set(x, { y, record, header, ignored: []});
+        entry.values.set(x, { y, row, header, ignored: []});
       }
       //if (!groups.has(group)) groups.set(group, []);
       //groups.get(group).push([x, y]);
     }
   }
 
+  // different error messages 
+  const list = items => items.length <= 5
+    ? items.join(', ')
+    : `${items.slice(0, 5).join(', ')} …and ${items.length - 5} more`;
+  const plural = (n, one, many) => (n === 1 ? one : many);
+
   const entries = [...groups.values()].sort((a,b) => a.label.localeCompare(b.label));
+  // Changed: collect duplicate-name messages first instead of adding them
+  // straight to warnings, so they can be capped at 5 like the blank cells.
+  const combined = [];
+  const conflicts = [];
   for (const entry of entries) {
-    if (entry.records.size > 1) {
+    if (entry.rows.size > 1) {
       let spellings = '';   // default: same spelling on every row, so add nothing
       if (entry.spellings.size > 1) {
-        spellings = ` as ${[...entry.spellings].map(s => `"${s}"`).join(', ')}`;
+        spellings = ` as ${list([...entry.spellings].map(s => `"${s}"`))}`;
       }
-      warnings.push(`"${entry.label}" appears in ${entry.records.size} rows ` +
-        `(records ${[...entry.records].join(', ')})${spellings}; combined into one.`);
+      combined.push(`"${entry.label}" appears in ${entry.rows.size} rows ` +
+        `(rows ${list([...entry.rows])})${spellings}; combined into one.`);
     }
-    for (const { y, record, header, ignored } of entry.values.values()) {
+    for (const { y, row, header, ignored } of entry.values.values()) {
       if (!ignored.length) continue;
-      const others = ignored.map(o => `${o.y} (record ${o.record})`).join(', ');
-      warnings.push(`"${entry.label}" has ${ignored.length + 1} values for ${header}: ` +
-        `kept ${y} (record ${record}), ignored ${others}.`);
+      const others = list(ignored.map(o => `${o.y} (row ${o.row})`));
+      conflicts.push(`"${entry.label}" has ${ignored.length + 1} values for ${header}: ` +
+        `kept ${y} (row ${row}), ignored ${others}.`);
     }
   }
+
+  // New thing: adding the first 5 messages of a kind, then one summary line for the rest.
+  // ex: …and 3 more names combined from several rows.
+  const capped = (messages, one, many) => {
+    warnings.push(...messages.slice(0, 5));
+    const extra = messages.length - 5;
+    if (extra > 0) warnings.push(`…and ${extra} more ${plural(extra, one, many)}.`);
+  };
+  capped(combined, 'name combined from several rows', 'names combined from several rows');
+  capped(conflicts, 'column with more than one value', 'columns with more than one value');
 
   const missing = [...new Set(emptyRows.filter(r => !groups.has(r.key)).map(r => r.label))];
   if (missing.length) {
@@ -180,9 +219,27 @@ export function buildFromParsed(parsed, options) {
     group: label,
     points: [...values].map(([x, { y }]) => [x, y]).sort((a, b) => a[0] - b[0]),
   }));
-  for (const [reason, count] of counts) {
-    warnings.push(`${count} ${count === 1 ? 'observation' : 'observations'} skipped: ${reason}`);
+
+  // ex: 1 row skipped because the first column is empty: row 8.
+  const noLabel = skipped.get('noLabel') ?? [];
+  if (noLabel.length) {
+    warnings.push(`${noLabel.length} ${plural(noLabel.length, 'row', 'rows')} ` +
+      `skipped because the first column is empty: ${list(noLabel)}.`);
   }
+  // ex: 1 blank cell skipped: name (header).
+  const blank = skipped.get('blank') ?? [];
+  if (blank.length) {
+    warnings.push(`${blank.length} blank ${plural(blank.length, 'cell', 'cells')} ` +
+      `skipped: ${list(blank)}.`);
+  }
+  // ex 2 cells skipped because they aren't a number: name (header: "n/a"), ...
+  const notNumber = skipped.get('notNumber') ?? [];
+  if (notNumber.length) {
+    warnings.push(`${notNumber.length} ${plural(notNumber.length, 'cell', 'cells')} ` +
+      `skipped because ${plural(notNumber.length, "it isn't", "they aren't")} a number: ` +
+      `${list(notNumber)}.`);
+  }
+
   return result;
 }
 
