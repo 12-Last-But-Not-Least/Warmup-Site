@@ -156,7 +156,18 @@ test('Canvas and SVG export contracts include chart context and report clipboard
   assert.ok(svgText.includes('Test chart') && svgText.includes('2 drawn of 2 observations'));
   assert.ok(svgText.includes('class="point"'), 'the plotted points are kept as vector shapes');
   assert.ok(!svgText.includes('hover-ring'));
-  assert.ok([...root.querySelectorAll('.chart-image-actions button')].some(button=>button.textContent==='Save SVG'));
+  // The Save SVG button passes the chart's tooltip text along, so points get native hover labels.
+  const saveSvg = [...root.querySelectorAll('.chart-image-actions button')].find(button=>button.textContent==='Save SVG');
+  const originalUrl = URL.createObjectURL, originalClick = window.HTMLAnchorElement.prototype.click;
+  let saved;
+  URL.createObjectURL = blob => { saved = blob; return 'blob:test'; };
+  window.HTMLAnchorElement.prototype.click = () => {};
+  saveSvg.click();
+  URL.createObjectURL = originalUrl; window.HTMLAnchorElement.prototype.click = originalClick;
+  const hoverText = await saved.text();
+  assert.equal((hoverText.match(/<title>/g) || []).length, 2, 'one hover label per drawn point');
+  assert.ok(hoverText.includes('<title>A\nX: 1\nY: 2</title>'));
+  assert.equal(root.querySelectorAll('.scatter-plot title').length, 0, 'the live chart keeps only its own tooltip');
   root.querySelector('.chart-image-actions button').click();
   assert.equal(clipboardCalls,1);
   await until(()=>root.querySelector('.chart-image-status').textContent.includes('Permission denied'));

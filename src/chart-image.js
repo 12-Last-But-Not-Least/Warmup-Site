@@ -109,7 +109,7 @@ function svgNode(tag, attrs, parent) {
 }
 
 /** A standalone vector file of the chart. Only possible when the chart is drawn with the SVG renderer. */
-export function chartSvg(container) {
+export function chartSvg(container, tooltips) {
   const { drawing, width, plotHeight } = chartDrawing(container);
   if (drawing.tagName.toLowerCase() !== 'svg') throw new Error('switch this chart to SVG first. Canvas charts can only be saved as PNG.');
   const { font, color, background, title, entries, caption, header, padding } = exportHeader(container, width);
@@ -130,8 +130,23 @@ export function chartSvg(container) {
   plot.removeAttribute('xmlns'); // createElementNS already gives it the namespace; a second copy breaks strict XML parsers
   plot.setAttribute('x', '0'); plot.setAttribute('y', String(header));
   plot.setAttribute('width', String(width)); plot.setAttribute('height', String(plotHeight));
+  addHoverText(plot, tooltips?.());
   root.append(plot);
   return new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n', new XMLSerializer().serializeToString(root)], { type: 'image/svg+xml;charset=utf-8' });
+}
+
+// Browsers show an SVG <title> on hover, so the saved file keeps the chart's tooltips
+// without any script. The live chart doesn't get these, or it would show two tooltips.
+function addHoverText(plot, tooltips) {
+  if (!tooltips) return;
+  const attach = (selector, texts) => plot.querySelectorAll(selector).forEach((shape, i) => {
+    if (!texts[i]) return;
+    const title = svgNode('title', {});
+    title.textContent = texts[i];
+    shape.prepend(title);
+  });
+  attach('.point', tooltips.points);
+  attach('.mean', tooltips.means);
 }
 
 function downloadBlob(blob, fileName) {
@@ -141,13 +156,13 @@ function downloadBlob(blob, fileName) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function addImageActions(container) {
+export function addImageActions(container, { tooltips } = {}) {
   const actions = document.createElement('div'); actions.className = 'chart-image-actions';
   const status = document.createElement('span'); status.className = 'chart-image-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy image';
   const save = document.createElement('button'); save.type = 'button'; save.textContent = 'Save PNG';
   const saveSvg = document.createElement('button'); saveSvg.type = 'button'; saveSvg.textContent = 'Save SVG';
-  saveSvg.title = 'Vector file for slides or papers. Needs the SVG renderer.';
+  saveSvg.title = 'Vector file for slides or papers, with hover labels when opened in a browser. Needs the SVG renderer.';
   let messageTimer;
   const message = text => { clearTimeout(messageTimer); status.textContent = text; messageTimer = setTimeout(() => { status.textContent = ''; }, 4000); };
   copy.disabled = !navigator.clipboard?.write || typeof ClipboardItem === 'undefined';
@@ -171,7 +186,7 @@ export function addImageActions(container) {
   };
   saveSvg.onclick = () => {
     try {
-      downloadBlob(chartSvg(container), imageFileName(container.querySelector('h2')?.textContent, 'svg'));
+      downloadBlob(chartSvg(container, tooltips), imageFileName(container.querySelector('h2')?.textContent, 'svg'));
       message('SVG download started.');
     } catch (error) { message(`Could not save the SVG: ${error.message}`); }
   };
