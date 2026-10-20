@@ -16,7 +16,7 @@ import { computeStats } from './stats.js';
 import { addImageActions } from './chart-image.js';
 import { addLayoutControls } from './chart-layout.js';
 import {
-  formatLogTick, formatTick, fromT, isPlottable, logTicks, makeScale, niceTicks, paddedExtent,
+  categoryLabelStep, formatLogTick, formatTick, fromT, isPlottable, logTicks, makeScale, niceTicks, paddedExtent,
 } from './scales.js';
 import { MEAN_HALF_WIDTH, POINT_R, colorFor, shapePath } from './render-common.js';
 import { createCanvasRenderer } from './render-canvas.js';
@@ -37,7 +37,7 @@ export { linearScale, niceStep, niceTicks, logTicks } from './scales.js';
  * @property {string} yLabel
  * @property {Point[]} points
  * @property {Object<number,string>} [xTickLabels]  // e.g. {0:"Mon",...,6:"Sun"}
- * @property {boolean} [showTrend]   // linear fit line + r in the corner
+ * @property {boolean} [showTrend]   // linear fit line + r in the legend
  * @property {boolean} [showMeans]   // mean marker per distinct x (weekday plots)
  * @property {number}  [jitter]      // horizontal jitter in x units (weekday plots)
  * @property {boolean} [connectGroups] // join each group's points in x order (line chart)
@@ -125,6 +125,24 @@ function htmlEl(tag, className, text) {
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+/** @type {CanvasRenderingContext2D | null} offscreen context for measuring tick labels */
+let measureCtx = null;
+
+/**
+ * Width in px of the widest label at the tick-label font. Labels come from
+ * uploaded CSVs, so they're measured rather than estimated per character.
+ * @param {string[]} labels
+ * @param {string} fontFamily
+ */
+function widestLabelPx(labels, fontFamily) {
+  const ctx = measureCtx ??= document.createElement('canvas').getContext('2d');
+  // No 2D context: assume every character is as wide as the font size, which
+  // is wider than any glyph measured (uppercase W is ~11.6px at 12px).
+  if (!ctx) return Math.max(0, ...labels.map((l) => l.length)) * TICK_FONT_PX;
+  ctx.font = `${TICK_FONT_PX}px ${fontFamily}`;
+  return Math.max(0, ...labels.map((l) => ctx.measureText(l).width));
 }
 
 /**
@@ -302,11 +320,13 @@ export function drawScatter(container, input, options = {}) {
     const scale = isX ? sx : sy;
     const px = isX ? plotW : plotH;
     if (isX && xTickLabels) {
+      // When the labels would overlap, label every step-th category (by index,
+      // so labels don't jump while panning). Gridlines still mark every category.
       const step = categoryLabelStep(Math.abs(scale.map(1) - scale.map(0)), widestCategoryPx);
       return Object.entries(xTickLabels)
         .map(([k, text]) => ({ v: Number(k), text }))
         .filter((t) => t.v >= t0 && t.v <= t1)
-        .map(({ v, text }) => ({ px: scale.map(v), text }));
+        .map(({ v, text }) => ({ px: scale.map(v), text: v % step === 0 ? text : '' }));
     }
     if (kind === 'log') {
       return logTicks(t0, t1, Math.max(3, Math.round(px / (isX ? 70 : 40))))
@@ -339,8 +359,7 @@ export function drawScatter(container, input, options = {}) {
 
     /** @type {[number, number][] | null} */
     let trend = null;
-    /** @type {string | null} */
-    let cornerLabel = null;
+    let stat = '';
     if (showTrend && visible.length >= 2) {
       const xy = visible.map((m) => ({ x: m.point.x, y: m.point.y }));
       const cacheKey = `${dataVersion}:${kinds.x}:${kinds.y}`;
@@ -357,9 +376,9 @@ export function drawScatter(container, input, options = {}) {
         }
         if (trend.length < 2) trend = null;
       }
-      cornerLabel = `r = ${Number.isFinite(stats.r) ? stats.r.toFixed(2) : '—'}  (n = ${stats.n})`;
+      stat = `r = ${Number.isFinite(stats.r) ? stats.r.toFixed(2) : '—'}  (n = ${stats.n})`;
       if (typeof stats.p_value === 'number' && Number.isFinite(stats.p_value)) {
-        cornerLabel += `  p = ${stats.p_value < 0.001 ? '<0.001' : stats.p_value.toFixed(3)}`;
+        stat += `  p = ${stats.p_value < 0.001 ? '<0.001' : stats.p_value.toFixed(3)}`;
       }
     }
 
@@ -393,7 +412,6 @@ export function drawScatter(container, input, options = {}) {
       xLabel,
       yLabel,
       trend,
-      cornerLabel,
       lines,
       marks: visible.map((m) => ({ px: sx.map(m.x), py: sy.map(m.y), slot: m.slot, group: m.group, mark: m })),
       means,
@@ -649,7 +667,12 @@ export function drawScatter(container, input, options = {}) {
   } else if (hasGroups) { legendItems.append(...groups.map(legendButton)); legend.append(legendItems); }
   if (input.aggregate) legend.append(lineKey('mean', 'Category mean (visible groups)'));
   if (showMeans) legend.append(lineKey('mean', 'Mean'));
-  if (showTrend) legend.append(lineKey('trend', 'Linear fit'));
+  if (showTrend) {
+    const key = lineKey('trend', 'Linear fit');
+    trendStatEl = htmlEl('span', 'trend-stat');
+    key.append(trendStatEl);
+    legend.append(key);
+  }
 
   /** @param {number} slot */
   function markerSwatch(slot) {

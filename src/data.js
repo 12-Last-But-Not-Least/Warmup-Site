@@ -86,7 +86,17 @@ export function parseCsv(text) {
  *   xTickLabels?: row<number, string>, warnings: string[]}}
  */
 export function buildPlotData(text, options) {
-  const { columns, rows, rowNumbers, warnings } = parseCsv(text);
+  return buildFromParsed(parseCsv(text), options);
+}
+
+/**
+ * buildPlotData for a CSV that is already parsed (the worker streams files
+ * with Papa and passes the rows here). Same options and result.
+ * @param {{columns: string[], rows: string[][], rowNumbers: number[], warnings: string[]}} parsed
+ * @param {{xColumns?: string[], xType?: 'number' | 'category'}} [options]
+ */
+export function buildFromParsed(parsed, options) {
+  const { columns, rows, rowNumbers, warnings } = parsed;
   const { xColumns = columns.slice(1), xType = 'category' } = options ?? {};
   const result = {
     valueHeader: columns[0] ?? null,

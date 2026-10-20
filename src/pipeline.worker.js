@@ -32,7 +32,7 @@ function parseFile(file, id, index, budget) {
       if (failed) return;
       try {
         if (!columns) throw new Error(`${file.name}: the file is empty.`);
-        const result = buildFromParsed({ columns, rows, recordNumbers, warnings });
+        const result = buildFromParsed({ columns, rows, rowNumbers: recordNumbers, warnings });
         const warningCount = result.warnings.length;
         result.warnings = result.warnings.slice(0, 200);
         if (warningCount > 200) result.warnings.push(`${warningCount - 200} additional warnings omitted from the preview.`);
