@@ -166,8 +166,8 @@ export function formatTick(v, step) {
 export function paddedExtent(kind, values, pad = 0.06) {
   const ts = values.filter((v) => isPlottable(kind, v)).map((v) => toT(kind, v));
   if (ts.length === 0) return [0, 1];
-  let min = Math.min(...ts);
-  let max = Math.max(...ts);
+  let min = ts.reduce((a, b) => Math.min(a, b), Infinity);
+  let max = ts.reduce((a, b) => Math.max(a, b), -Infinity);
   if (min === max) { min -= 1; max += 1; }
   const p = (max - min) * pad;
   return [min - p, max + p];

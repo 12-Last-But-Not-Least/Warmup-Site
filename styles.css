@@ -285,3 +285,88 @@ h1 { margin: 0 0 4px; font-size: 1.6rem; }
 }
 .examples button:hover,
 .examples button:focus-visible { border-color: var(--text-muted); }
+
+.chart-width { color: var(--text-secondary); font-size: 0.8rem; }
+.chart-width select, .chart-fullscreen, .chart-image-actions button { font: inherit; color: var(--text-primary); background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 4px 8px; }
+.chart-image-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.chart-image-status, .chart-layout-status { font-size: 0.8rem; color: var(--text-secondary); }
+.chart-image-actions button:disabled { opacity: 0.55; cursor: default; }
+.chart-expanded, .scatter:fullscreen { box-sizing: border-box; position: fixed; inset: 0; z-index: 1000; width: 100vw; height: 100vh; max-width: none !important; margin: 0; padding: 24px; overflow: auto; background: var(--surface); color: var(--text-primary); }
+
+/* Controls added only for chart configuration and bounded data inspection. */
+main { max-width: 1440px; }
+header, .upload, .settings, .metrics, .scope-note, .inspector, #dataset-label { max-width: 960px; margin-left: auto; margin-right: auto; }
+.scatter { max-width: 960px; margin-left: auto; margin-right: auto; }
+.scatter-plot > canvas, .scatter-plot > svg { max-width: 100%; }
+button, input, select { font: inherit; } button { cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; } [hidden] { display: none !important; }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--series-1); outline-offset: 3px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+.file-picker { display: inline-block; width: fit-content; border: 1px solid var(--border); border-radius: 5px; padding: 5px 9px; color: var(--text-primary); cursor: pointer; }
+.file-picker:focus-within { outline: 2px solid var(--series-1); outline-offset: 2px; }
+.file-name { font-size: .78rem; overflow-wrap: anywhere; }
+.import-hint, .scope-note, .chart-note, #dataset-label, .export-note { color: var(--text-secondary); font-size: .8rem; line-height: 1.6; }
+.import-hint, .task, .quality { flex-basis: 100%; margin: 0; }
+.task { display: flex; align-items: center; gap: 10px; }
+.task button { margin-left: auto; }
+.error { color: var(--series-8); }
+.quality ul { max-height: 160px; overflow: auto; }
+.settings, .table-tools { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.control { display: flex; flex-direction: column; gap: 5px; font-size: .8rem; color: var(--text-secondary); }
+.control select, .control input { background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: 5px; padding: 6px 8px; }
+.check { font-size: .8rem; display: flex; align-items: center; gap: 5px; }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.metric { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); min-width: 0; }
+.metric-label { color: var(--text-secondary); font-size: .7rem; display: block; }
+.metric strong { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+.metric p { margin: 4px 0 0; font-size: .72rem; color: var(--text-secondary); }
+.chart-note { margin: 12px 0 0; }
+.legend-items { display: flex; flex-wrap: wrap; gap: 4px 6px; width: 100%; }
+.legend-paging { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; font-size: .75rem; }
+.legend-paging input, .legend-paging button, .chart-table-link, .pager button, .tabs button, #export, #cancel-task { color: var(--text-primary); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px; }
+.chart-table-link { display: inline-block; font-size: .8rem; margin-top: 10px; }
+.legend-count { color: var(--text-secondary); }
+.inspector summary { cursor: pointer; font-weight: 600; }
+.inspector-heading, .table-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px 0; }
+.tabs { display: flex; gap: 8px; margin: 14px 0; }
+.tabs button[aria-pressed="true"] { border-color: var(--series-1); font-weight: 600; }
+.table-tools { margin-bottom: 12px; }
+#table-count { margin-left: auto; color: var(--text-secondary); font-size: .8rem; }
+.table-scroll { overflow: auto; max-height: 450px; border: 1px solid var(--border); border-radius: 6px; }
+.table-scroll table { border-collapse: collapse; width: 100%; white-space: nowrap; font-size: .82rem; }
+.table-scroll thead { position: sticky; top: 0; background: var(--surface); }
+.table-scroll td, .table-scroll th { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--grid); }
+.table-scroll td.num { font-variant-numeric: tabular-nums; }
+.table-scroll #table-empty { padding: 12px; }
+.table-footer { font-size: .78rem; color: var(--text-secondary); }
+.pager { display: flex; align-items: center; gap: 12px; }
+.chart-expanded .chart-image-actions, .scatter:fullscreen .chart-image-actions { padding-bottom: 8px; }
+@media(max-width: 760px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } main { padding: 20px 12px; } }
+
+.chart-settings, .chart-settings-note { max-width: 960px; margin-left: auto; margin-right: auto; }
+
+/* "Width for all charts" sits at the right end of the pinned bar; each chart keeps its own
+   "Maximum width" to override it (Y6). Both are hidden on narrow screens, where there is no room
+   and every option already means "fill the screen". */
+.chart-settings .plot-width { margin-left: auto; }
+@media (max-width: 600px) { .chart-width { display: none; } }
+
+/* Chart toolbar: hint on the left, controls packed to the right, so a wrapped row keeps
+   Reset view and Fullscreen together at the right edge instead of stranding Fullscreen (6a).
+   Empty status messages take no slot until they have something to say. */
+.scatter-toolbar { justify-content: flex-end; }
+.scatter-toolbar .scatter-hint { margin-right: auto; }
+.chart-layout-status:empty, .chart-image-status:empty { display: none; }
+/* "Show data table" shares the image-actions row, pinned to its left end (6b). */
+.chart-image-actions .chart-table-link { margin: 0 auto 0 0; }
+.chart-image-buttons { display: inline-flex; gap: 8px; }
+
+/* Y5: on wide screens the filter row (search, line display, means/fit) stays pinned at the top,
+   with the Canvas/SVG bar pinned directly below it. Its height is fixed so the bar knows where to
+   stop; at >= 1024px its controls always fit on one line. Narrow screens keep it unpinned. */
+@media (min-width: 1024px) {
+  :root { --filters-h: 5.625rem; }
+  #charts > .settings { position: sticky; top: 0; z-index: 3; box-sizing: border-box; height: var(--filters-h); flex-wrap: nowrap; }
+  #charts > .chart-settings { top: var(--filters-h); }
+  html:has(#charts:not([hidden])) { scroll-padding-top: calc(var(--filters-h) + var(--settings-h) + 8px); }
+}

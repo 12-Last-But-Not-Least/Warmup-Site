@@ -1,223 +1,249 @@
-// @ts-check
-/**
- * Entry point. Waits for the user to upload two CSVs, parses each with
- * data.js, then draws:
- *   1. a line chart of the first file (one line per group),
- *   2. a line chart of the second file,
- *   3. a scatter plot of the first file's values against the second's.
- * Nothing here assumes the files are steps or sleep; titles and axis labels
- * come from each file's top-left header.
- */
 import { drawScatter } from './chart.js';
-import { buildPlotData } from './data.js';
+import { exportFileName } from './export-name.js';
 
-/** @typedef {import('./chart.js').PlotInput} PlotInput */
-/** @typedef {import('./chart.js').ChartHandle} ChartHandle */
-/** @typedef {import('./chart.js').RendererKind} RendererKind */
-/** @typedef {ReturnType<typeof buildPlotData>} PlotData */
+const $ = id => document.getElementById(id);
+const number = (v, decimals = 2) => Number.isFinite(v) ? v.toLocaleString(undefined, { maximumFractionDigits: decimals }) : '—';
+// Exactly `decimals` places, so values in one column or card line up (Y4).
+const fixed = (v, decimals) => Number.isFinite(v) ? v.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) : '—';
+let active, candidate, task, request = 0, loadVersion = 0, viewVersion = 0, pageVersion = 0;
+let charts = [], current, page = 0, source = 0, filterTimer;
+let rendererKind = 'canvas';
+let hiddenBySource = [[], [], []];
+let refocus = null; // { id, label } of a legend item to focus after the next redraw
+const chartSettings = [{ x: 'linear', y: 'linear' }, { x: 'linear', y: 'linear' }, { x: 'linear', y: 'linear' }];
 
-/**
- * Line chart input for one parsed file.
- * @param {PlotData} data
- * @param {string} fallbackName  used when the file has no top-left header
- * @returns {PlotInput}
- */
-function toLineInput(data, fallbackName) {
-  const name = data.valueHeader || fallbackName;
-  return {
-    title: name,
-    xLabel: '',   // the file doesn't name its X axis; the tick labels (e.g. Monday) say enough
-    yLabel: name,
-    points: data.series.flatMap(({ group, points }) => points.map(([x, y]) => ({ x, y, group }))),
-    xTickLabels: data.xTickLabels,
-    connectGroups: true,
+function workerClient() {
+  const worker = new Worker(new URL('./pipeline.worker.js', import.meta.url), { type: 'module' });
+  const pending = new Map();
+  worker.onmessage = ({ data }) => {
+    const item = pending.get(data.id);
+    if (!item) return;
+    if (data.progress) { item.progress?.(data.progress); return; }
+    pending.delete(data.id);
+    if (data.error) item.reject(new Error(data.error)); else item.resolve(data.result);
   };
+  worker.onerror = event => { for (const p of pending.values()) p.reject(new Error(event.message || 'The background processor stopped. Try a smaller file.')); pending.clear(); };
+  return { send(type, payload, progress) { const id = ++request; const promise = new Promise((resolve, reject) => pending.set(id, { resolve, reject, progress })); worker.postMessage({ id, type, payload }); return { id, promise }; },
+    stop() { worker.terminate(); for (const p of pending.values()) p.reject(new Error('Cancelled.')); pending.clear(); },
+    cancelExport(id) { worker.postMessage({ type: 'cancel-export', payload: { id } }); } };
 }
+function status(text, error = false) { $('status').textContent = text; $('status').classList.toggle('error', error); }
+function busy(text, cancel) { task = cancel; $('task').hidden = false; $('task-message').textContent = text; $('export').disabled = true; }
+function idle() { task = null; $('task').hidden = true; $('export').disabled = !active; }
+$('cancel-task').onclick = () => task?.();
 
-/**
- * Scatter input: pairs each group's value in file A with its value in file B
- * for the same X header (e.g. Jay on Monday). Matching is by header text, not
- * position, because the two files may order their columns differently.
- * @param {PlotData} a  plotted on the Y axis
- * @param {PlotData} b  plotted on the X axis
- * @returns {PlotInput}
- */
-function toScatterInput(a, b) {
-  const nameA = a.valueHeader || 'File 1';
-  const nameB = b.valueHeader || 'File 2';
-  /** @param {PlotData} data @param {string} group @param {number} x */
-  const key = (data, group, x) => JSON.stringify([group, data.xTickLabels?.[x] ?? x]);
-
-  /** @type {Map<string, number>} */
-  const bValues = new Map();
-  for (const { group, points } of b.series) {
-    for (const [x, y] of points) bValues.set(key(b, group, x), y);
-  }
-
-  const points = a.series.flatMap(({ group, points: pts }) => pts.flatMap(([x, y]) => {
-    const other = bValues.get(key(a, group, x));
-    return other === undefined ? [] : [{ x: other, y, group }];
-  }));
-
-  return { title: `${nameA} vs. ${nameB}`, xLabel: nameB, yLabel: nameA, points, showTrend: true };
-}
-
-/**
- * @param {string} id
- * @returns {HTMLElement}
- */
-function byId(id) {
-  const node = document.getElementById(id);
-  if (!node) throw new Error(`Missing #${id} in index.html`);
-  return node;
-}
-
-// ---- Upload handling ------------------------------------------------------
-
-const fileInputA = /** @type {HTMLInputElement} */ (byId('file-a'));
-const fileInputB = /** @type {HTMLInputElement} */ (byId('file-b'));
-const statusEl = byId('status');
-const chartsEl = byId('charts');
-const warningsEl = byId('warnings');
-
-/** @type {string[]} warnings about the uploaded files */
-let dataWarnings = [];
-/** @type {Map<string, string>} chart title -> note about points a log axis can't show */
-const scaleWarnings = new Map();
-/** @type {ChartHandle[]} */
-let chartHandles = [];
-/** @type {RendererKind} */
-let renderer = 'canvas';
-
-function refreshWarnings() {
-  showWarnings([...dataWarnings, ...scaleWarnings.values()]);
-}
-
-/** @param {string[]} messages */
-function showWarnings(messages) {
-  warningsEl.replaceChildren(...messages.map((m) => {
-    const li = document.createElement('li');
-    li.textContent = m; // textContent: messages can echo text from the user's files
-    return li;
-  }));
-  warningsEl.hidden = messages.length === 0;
-}
-
-/**
- * Parse two CSV texts and draw the three charts (or explain what's wrong).
- * @param {string} textA  first file, plotted on Y in the scatter
- * @param {string} nameA
- * @param {string} textB  second file, plotted on X in the scatter
- * @param {string} nameB
- */
-function showCharts(textA, nameA, textB, nameB) {
-  const a = buildPlotData(textA);
-  const b = buildPlotData(textB);
-  dataWarnings = [
-    ...a.warnings.map((message) => `${nameA}: ${message}`),
-    ...b.warnings.map((message) => `${nameB}: ${message}`),
-  ];
-  scaleWarnings.clear();
-  refreshWarnings();
-
-  if (a.series.length === 0 || b.series.length === 0) {
-    chartsEl.hidden = true; // don't leave the previous charts on screen
-    statusEl.textContent = 'One of the files has no usable data. See the messages below.';
-    return;
-  }
-
-  const scatter = toScatterInput(a, b);
-  chartsEl.hidden = false; // show before drawing so the charts can measure their width
-  chartHandles = [
-    plotChart('chart-a', toLineInput(a, nameA)),
-    plotChart('chart-b', toLineInput(b, nameB)),
-    plotChart('chart-scatter', scatter),
-  ];
-
-  const groups = new Set([...a.series, ...b.series].map((s) => s.group)).size;
-  statusEl.textContent = `Showing ${nameA} and ${nameB}: ${groups} groups, `
-    + `${scatter.points.length} matched pairs on the scatter plot.`;
-}
-
-/**
- * Draw one chart with the current renderer, and surface any points that a
- * log axis can't show in the warnings list.
- * @param {string} id
- * @param {PlotInput} input
- */
-function plotChart(id, input) {
-  return drawScatter(byId(id), input, {
-    renderer,
-    onHidden(count) {
-      if (count > 0) {
-        scaleWarnings.set(id, `${input.title}: ${count} point${count === 1 ? '' : 's'} with a value of 0 or less can't be shown on a log axis.`);
-      } else {
-        scaleWarnings.delete(id);
-      }
-      refreshWarnings();
-    },
-  });
-}
-
-// ---- Renderer toggle (Canvas / SVG) ----------------------------------------
-
-for (const button of document.querySelectorAll('button[data-renderer]')) {
-  button.addEventListener('click', () => {
-    renderer = /** @type {RendererKind} */ (button.getAttribute('data-renderer'));
-    for (const b of document.querySelectorAll('button[data-renderer]')) {
-      b.setAttribute('aria-pressed', String(b === button));
-    }
-    for (const handle of chartHandles) handle.setRenderer(renderer);
-  });
-}
-
-/** @param {unknown} err */
-function showError(err) {
-  chartsEl.hidden = true;
-  chartHandles = [];
-  showWarnings([`Couldn't read the files: ${err instanceof Error ? err.message : String(err)}`]);
-  statusEl.textContent = 'Something went wrong reading the files. See the message below.';
-}
-
-async function onFilesChanged() {
-  const fileA = fileInputA.files?.[0];
-  const fileB = fileInputB.files?.[0];
-  if (!fileA || !fileB) {
-    statusEl.textContent = 'Now pick the other file to see the charts.';
-    return;
-  }
+async function load(payload) {
+  if (task) task();
+  const version = ++loadVersion;
+  const example = payload.example ?? null;
+  candidate?.stop();
+  const client = workerClient(); candidate = client;
+  const controller = new AbortController();
+  let cancelled = false;
+  const cancel = () => { cancelled = true; controller.abort(); client.stop(); if (candidate === client) candidate = null; if (version === loadVersion) { idle(); status('Import cancelled. The previous dataset is still available.'); } };
+  busy('Preparing your data…', cancel);
   try {
-    showCharts(await fileA.text(), fileA.name, await fileB.text(), fileB.name);
-  } catch (err) {
-    showError(err);
+    if (payload.paths) {
+      const paths = payload.paths;
+      payload = { files: await Promise.all(paths.map(async path => { const r = await fetch(path, { signal: controller.signal }); if (!r.ok) throw new Error('Could not load the example.'); return new File([await r.blob()], path.split('/').pop()); })) };
+    }
+    const result = await client.send('load', payload, text => { if (version === loadVersion) $('task-message').textContent = text; }).promise;
+    if (cancelled || version !== loadVersion) { client.stop(); return; }
+    active?.stop(); active = client; candidate = null;
+    viewVersion++; pageVersion++; $('group-filter').value = ''; $('overview').value = 'auto'; page = 0;
+    hiddenBySource = [[], [], []];
+    $('charts').removeAttribute('aria-busy');
+    markCurrentExample(example);
+    current = result; $('charts').hidden = false;
+    idle(); paintView(); await loadPage();
+    status(`Ready · ${number(result.groups, 0)} ${result.groups === 1 ? 'group' : 'groups'} · ${number(result.counts[2], 0)} matched pairs. All processing stayed in your browser.`);
+  } catch (e) {
+    client.stop();
+    if (cancelled || version !== loadVersion) return;
+    candidate = null; idle(); status(`${e.message} Previous results have been kept.`, true);
   }
 }
-
-fileInputA.addEventListener('change', onFilesChanged);
-fileInputB.addEventListener('change', onFilesChanged);
-
-// ---- Example buttons ------------------------------------------------------
-// Each button names two CSV files in data/ (data-a and data-b attributes).
-
-/** @param {string} path */
-async function fetchText(path) {
-  const res = await fetch(path);
-  if (!res.ok) throw new Error(`${path} could not be loaded (${res.status})`);
-  return res.text();
+function loadSelectedFiles() {
+  const files = [$('file-a').files[0], $('file-b').files[0]];
+  for (const id of ['file-a', 'file-b']) $(`${id}-name`).textContent = $(id).files[0]?.name || 'No file selected';
+  if (files.some(f => !f)) { status('Choose both CSV files to see the charts.'); return; }
+  load({ files });
 }
+for (const id of ['file-a', 'file-b']) $(id).onchange = loadSelectedFiles;
+for (const b of document.querySelectorAll('[data-a]')) b.onclick = () => {
+  $('file-a').value = ''; $('file-b').value = '';
+  $('file-a-name').textContent = b.dataset.a.split('/').pop();
+  $('file-b-name').textContent = b.dataset.b.split('/').pop();
+  load({ paths: [b.dataset.a, b.dataset.b], example: b });
+};
 
-for (const button of document.querySelectorAll('button[data-a][data-b]')) {
-  button.addEventListener('click', async () => {
-    const pathA = button.getAttribute('data-a') ?? '';
-    const pathB = button.getAttribute('data-b') ?? '';
-    // Clear any uploaded files so the pickers don't disagree with the charts.
-    fileInputA.value = '';
-    fileInputB.value = '';
-    try {
-      const [textA, textB] = await Promise.all([fetchText(pathA), fetchText(pathB)]);
-      showCharts(textA, pathA.split('/').pop() ?? pathA, textB, pathB.split('/').pop() ?? pathB);
-    } catch (err) {
-      showError(err);
-    }
+function metric(label, value, detail) {
+  const el = document.createElement('article'); el.className = 'metric';
+  for (const [tag, cls, text] of [['span', 'metric-label', label], ['strong', '', value], ['p', '', detail]]) { const n = document.createElement(tag); n.className = cls; n.textContent = text; el.append(n); }
+  return el;
+}
+function paintView(preserve = false) {
+  if (!current) return;
+  const { labels, stats, fit, counts, groups, statDecimals = [2, 2] } = current;
+  const stat = (i, field) => fixed(stats[i][field], statDecimals[i]);
+  $('dataset-label').textContent = `${number(groups, 0)} ${groups === 1 ? 'group' : 'groups'} · ${current.names.join(' + ')}`;
+  $('metrics').replaceChildren(
+    metric('MATCHED OBSERVATIONS', number(counts[2], 0), `${number(counts[0], 0)} first-file values · ${number(counts[1], 0)} second-file values`),
+    metric('PEARSON CORRELATION', fixed(fit.r, 3), 'Original values · correlation does not imply causation'),
+    metric(`MEAN · ${labels[0]}`, stat(0, 'mean'), `Median ${stat(0, 'median')} · sample SD ${stat(0, 'sd')}`),
+    metric(`MEAN · ${labels[1]}`, stat(1, 'mean'), `Median ${stat(1, 'median')} · sample SD ${stat(1, 'sd')}`),
+  );
+  const warnings = current.warnings;
+  $('quality').hidden = !warnings.length;
+  $('quality-title').textContent = `${warnings.length} data quality notes · blank, invalid or duplicate values`;
+  $('warnings').replaceChildren(...warnings.map(w => { const li = document.createElement('li'); li.textContent = w; return li; }));
+  $('scope-note').textContent = 'Click a group name in a chart to hide or restore that group in that chart. File means follow each line chart; correlation follows the comparison chart. Statistics use all visible groups in original units. Drawing samples, pagination and log axes do not change the analysis sample.';
+  paintCharts(preserve);
+}
+// widthOverride: set by the global width control; otherwise each chart keeps its own width choice.
+function paintCharts(preserve = true, widthOverride) {
+  const states = charts.map(h => {
+    const state = h.getState();
+    return preserve ? state : { maxWidth: state.maxWidth };
   });
+  charts.forEach(h => h.destroy?.(preserve)); charts = [];
+  const ids = ['chart-a', 'chart-b', 'chart-scatter'];
+  current.charts.forEach((input, i) => {
+    const renderer = rendererKind;
+    let note = '';
+    if (i < 2 && input.aggregate) note = `Category means across ${number(input.sourceTotal, 0)} observations. Filter to 20 groups or fewer to explore individual lines.`;
+    else note = `${number(input.points.length, 0)} drawn of ${number(input.total, 0)} observations${input.points.length < input.total ? ' · deterministic drawing sample; statistics and exports use the full filtered data' : ''}.`;
+    if (input.hiddenObservations) note += ` ${number(input.hiddenObservations, 0)} observations hidden by this chart's legend.`;
+    $(ids[i]).dataset.exportNote = input.aggregate ? `Category means from ${input.sourceTotal} observations` : `${input.points.length} drawn of ${input.total} observations`;
+    const noteId = i === 2 ? 'scatter-note' : i === 0 ? 'line-a-note' : 'line-b-note';
+    const fullNote = note;
+    const handle = drawScatter($(ids[i]), { ...input, showMeans: $('show-means').checked && i < 2, showTrend: i === 2 && $('show-trend').checked }, {
+      ...states[i], renderer, xScale: chartSettings[i].x, yScale: chartSettings[i].y,
+      // Y6: global default, per-chart override; "mixed" is a display state, never a width.
+      maxWidth: widthOverride ?? states[i]?.maxWidth ?? ($('plot-width').value === 'mixed' ? undefined : $('plot-width').value),
+      onVisibilityChange(hidden) {
+        // The redraw replaces the legend, so remember the toggled item if it had focus (M2).
+        const focused = document.activeElement;
+        const toggled = [...hidden, ...hiddenBySource[i]].find(g => hidden.includes(g) !== hiddenBySource[i].includes(g));
+        refocus = focused?.classList.contains('legend-item') && $(ids[i]).contains(focused) ? { id: ids[i], label: toggled || '(no group)' } : null;
+        hiddenBySource[i] = hidden; updateView(true);
+      },
+      onHidden(_sampleCount, kinds) {
+        chartSettings[i] = kinds;
+        const hidden = kinds.x === 'log' && kinds.y === 'log' ? input.eitherNonPositive : kinds.x === 'log' ? input.xNonPositive : kinds.y === 'log' ? input.yNonPositive : 0;
+        $(noteId).textContent = fullNote + (hidden ? ` ${number(hidden, 0)} non-positive ${input.aggregate ? 'category means' : 'observations'} cannot appear on the selected log axes.` : '');
+      },
+    });
+    charts.push(handle);
+    const tableLink = document.createElement('button'); tableLink.type = 'button'; tableLink.className = 'chart-table-link'; tableLink.textContent = 'Show data table';
+    tableLink.onclick = () => { selectSource(i); $('table-details').open = true; $('table-details').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    // Same row as Copy image / Save PNG: table button on the left, image buttons on the right (6b).
+    const imageActions = $(ids[i]).querySelector('.chart-image-actions');
+    if (imageActions) imageActions.prepend(tableLink); else $(ids[i]).append(tableLink);
+  });
+  syncGlobalWidth();
+}
+// The global width shows the charts' common width, or "Mixed" when a chart was set on its own.
+// From "Mixed", picking any size is a change, so it always applies to every chart.
+function syncGlobalWidth() {
+  const widths = charts.map(h => h.getState().maxWidth);
+  if (widths.length) $('plot-width').value = widths.every(w => w === widths[0]) ? widths[0] : 'mixed';
+}
+$('charts').addEventListener('change', e => { if (e.target.closest('.scatter .chart-width')) syncGlobalWidth(); });
+async function updateView(preserve = false) {
+  if (!active) return;
+  const version = ++viewVersion, client = active;
+  // Only the redraw started by a legend toggle restores focus; later updates find nothing pending.
+  const focusTarget = refocus; refocus = null;
+  $('charts').setAttribute('aria-busy', 'true');
+  try {
+    const view = await client.send('view', { query: $('group-filter').value, overview: $('overview').value, hiddenBySource: hiddenBySource.map(groups => [...groups]) }).promise;
+    if (version !== viewVersion || client !== active) return;
+    current = view; page = 0; paintView(preserve);
+    if (focusTarget) [...$(focusTarget.id).querySelectorAll('.legend-item')].find(b => b.textContent === focusTarget.label)?.focus({ preventScroll: true });
+    await loadPage();
+  } catch (e) { if (version === viewVersion) status(e.message, true); }
+  finally { if (version === viewVersion) $('charts').removeAttribute('aria-busy'); }
+}
+$('group-filter').oninput = () => { clearTimeout(filterTimer); filterTimer = setTimeout(updateView, 220); };
+$('group-filter').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(filterTimer); updateView(); } };
+$('overview').onchange = () => updateView();
+for (const button of document.querySelectorAll('[data-renderer]')) button.onclick = () => {
+  rendererKind = button.dataset.renderer;
+  for (const b of document.querySelectorAll('[data-renderer]')) b.setAttribute('aria-pressed', String(b === button));
+  charts.forEach(h => h.setRenderer(rendererKind));
+};
+$('show-means').onchange = () => current && paintCharts();
+$('show-trend').onchange = () => current && paintCharts();
+$('plot-width').onchange = () => current && paintCharts(true, $('plot-width').value);
+
+function tableOptions() { return { source, mode: $('table-mode').value, sortBy: $('table-sort').value, direction: $('table-direction').value, query: $('group-filter').value, excludedGroups: [...hiddenBySource[source]], size: Number($('page-size').value), page }; }
+async function loadPage() {
+  if (!active) return;
+  const version = ++pageVersion, client = active;
+  try {
+    const result = await client.send('page', tableOptions()).promise;
+    if (version !== pageVersion || client !== active) return;
+    page = result.page;
+    const head = document.createElement('tr');
+    labelSortOptions(result.columns, tableOptions().mode);
+    result.columns.forEach(c => { const th = document.createElement('th'); th.scope = 'col'; th.textContent = c; head.append(th); });
+    $('data-table').tHead.replaceChildren(head);
+    const fragment = document.createDocumentFragment();
+    result.rows.forEach(row => { const tr = document.createElement('tr'); row.forEach((value, i) => { const td = document.createElement('td'); if (typeof value === 'number') td.className = 'num'; td.textContent = typeof value === 'number' ? fixed(value, result.decimals?.[i] ?? 3) : value; tr.append(td); }); fragment.append(tr); });
+    $('data-table').tBodies[0].replaceChildren(fragment);
+    $('table-empty').hidden = result.total !== 0;
+    const start = result.total ? page * result.size + 1 : 0, end = Math.min((page + 1) * result.size, result.total);
+    $('table-count').textContent = `${number(start, 0)}–${number(end, 0)} of ${number(result.total, 0)} rows`;
+    $('page-label').textContent = `${page + 1} / ${result.pages}`;
+    $('prev').disabled = page === 0; $('next').disabled = page + 1 >= result.pages;
+    $('table-note').textContent = result.note || 'Complete filtered data · only this page is added to the screen.';
+  } catch (e) { if (client === active) status(e.message, true); }
+}
+function selectSource(index) {
+  source = index; page = 0;
+  for (const tab of document.querySelectorAll('[data-source]')) tab.setAttribute('aria-pressed', String(Number(tab.dataset.source) === source));
+  syncSortOptions(); loadPage();
+}
+for (const b of document.querySelectorAll('[data-source]')) b.onclick = () => selectSource(Number(b.dataset.source));
+// Median, SD, Min and Max only exist for summaries; detail rows fall back to value.
+// The second file's value is a separate column only in matched pairs (All observations).
+function syncSortOptions() {
+  const detail = $('table-mode').value === 'detail';
+  for (const option of $('table-sort').querySelectorAll('[data-summary]')) option.hidden = option.disabled = detail;
+  for (const option of $('table-sort').querySelectorAll('[data-pairs]')) option.hidden = option.disabled = !(detail && source === 2);
+  if ($('table-sort').selectedOptions[0]?.disabled) $('table-sort').value = 'value';
+}
+// Option keys stay fixed; only their labels follow the table's own column names (e.g. "Step Count", "Mean").
+function labelSortOptions(columns, mode) {
+  const option = value => $('table-sort').querySelector(`option[value="${value}"]`);
+  option('value').textContent = mode === 'detail' ? columns.at(-1) : 'Mean';
+  if (mode === 'detail' && columns.length > 3) option('second').textContent = columns[2];
+}
+syncSortOptions();
+for (const id of ['table-mode', 'table-sort', 'table-direction', 'page-size']) $(id).onchange = () => { syncSortOptions(); page = 0; loadPage(); };
+$('prev').onclick = () => { page--; loadPage(); };
+$('next').onclick = () => { page++; loadPage(); };
+$('export').onclick = async () => {
+  if (!active || task) return;
+  const client = active, options = tableOptions();
+  const job = client.send('export', options, text => $('task-message').textContent = text);
+  let cancelled = false;
+  busy('Preparing the complete filtered export…', () => { cancelled = true; client.cancelExport(job.id); idle(); status('Export cancelled.'); });
+  try {
+    const result = await job.promise;
+    if (cancelled) return;
+    const url = URL.createObjectURL(result.blob), a = document.createElement('a');
+    a.href = url; a.download = exportFileName(current, options, result.rows); a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    status(`Exported ${number(result.rows, 0)} rows across all pages · ${options.mode === 'detail' ? 'cleaned observations' : 'summary statistics'}.`);
+  } catch (e) { if (!cancelled) status(e.message, true); }
+  finally { if (!cancelled && task) idle(); }
+};
+
+function markCurrentExample(currentExample) {
+  for (const button of document.querySelectorAll('[data-a][data-b]')) {
+    if (button === currentExample) button.setAttribute('aria-current', 'true');
+    else button.removeAttribute('aria-current');
+  }
 }

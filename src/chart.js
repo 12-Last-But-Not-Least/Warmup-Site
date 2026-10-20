@@ -13,6 +13,8 @@
  * Ctrl/⌘ + scroll (or trackpad pinch) to zoom, double-click or "Reset" to restore.
  */
 import { computeStats } from './stats.js';
+import { addImageActions } from './chart-image.js';
+import { addLayoutControls } from './chart-layout.js';
 import {
   formatLogTick, formatTick, fromT, isPlottable, logTicks, makeScale, niceTicks, paddedExtent,
 } from './scales.js';
@@ -27,6 +29,7 @@ export { linearScale, niceStep, niceTicks, logTicks } from './scales.js';
  * @property {number} x
  * @property {number} y
  * @property {string} [group]   // person name, used for color
+ * @property {string} [category]
  *
  * @typedef {Object} PlotInput
  * @property {string} title
@@ -38,6 +41,14 @@ export { linearScale, niceStep, niceTicks, logTicks } from './scales.js';
  * @property {boolean} [showMeans]   // mean marker per distinct x (weekday plots)
  * @property {number}  [jitter]      // horizontal jitter in x units (weekday plots)
  * @property {boolean} [connectGroups] // join each group's points in x order (line chart)
+ * @property {string[]} [groupNames] // includes hidden groups so they can be restored
+ * @property {string[]} [hiddenGroups]
+ * @property {Record<string,number>} [groupSlots]
+ * @property {boolean} [aggregate]
+ * @property {Mean[]} [meanPoints] // full-visible-data means supplied by the worker
+ * @property {ReturnType<typeof computeStats>} [statsOverride]
+ * @property {Record<ScaleKind,number[]>} [xRanges]
+ * @property {Record<ScaleKind,number[]>} [yRanges]
  *
  * @typedef {'canvas' | 'svg'} RendererKind
  * @typedef {import('./scales.js').ScaleKind} ScaleKind
@@ -46,14 +57,19 @@ export { linearScale, niceStep, niceTicks, logTicks } from './scales.js';
  * @property {RendererKind} [renderer]   default 'canvas'
  * @property {ScaleKind} [xScale]        default 'linear'
  * @property {ScaleKind} [yScale]        default 'linear'
- * @property {(hidden: number) => void} [onHidden]  called whenever the number of points that
+ * @property {(hidden: number, kinds: {x: ScaleKind, y: ScaleKind}) => void} [onHidden] called whenever the number of points that
  *                                       can't be drawn on a log axis (value <= 0) changes
  * @property {boolean} [controls]        show the scale selects in the chart toolbar (default true)
+ * @property {(groups: string[]) => void} [onVisibilityChange] request a full-data worker recomputation
+ * @property {{x: [number,number], y: [number,number]}} [view]
+ * @property {string} [maxWidth] * @property {number} [legendPage]
+ * @property {string} [legendQuery]
  *
  * @typedef {Object} ChartHandle
  * @property {(kind: RendererKind) => void} setRenderer
  * @property {(axis: 'x' | 'y', kind: ScaleKind) => void} setScale
- * @property {() => {renderer: RendererKind, xScale: ScaleKind, yScale: ScaleKind, hidden: number}} getState
+ * @property {() => {renderer: RendererKind, xScale: ScaleKind, yScale: ScaleKind, hidden: number, view?: {x: number[], y: number[]}, maxWidth?: string, legendPage?: number, legendQuery?: string}} getState
+ * @property {(preserveFullscreen?: boolean) => void} [destroy]
  *
  * @typedef {Object} Mark   one drawn point
  * @property {Point} point  original input point
@@ -75,6 +91,7 @@ const MARGIN = { top: 20, right: 24, bottom: 52, left: 72 };
 const HEIGHT = 360;
 const HIT_RADIUS = 24;        // px; hover target is much bigger than the mark
 const LOG_MEAN_HALF_PX = 12;  // mean bars have no fixed width in x units on a log axis
+const TICK_FONT_PX = 12;
 const TREND_SAMPLES = 64;     // a straight line is a curve on a log axis
 
 // ---------------------------------------------------------------------------
@@ -149,6 +166,7 @@ export function drawScatter(container, input, options = {}) {
   // Categorical x (weekday names) has no meaningful log scale.
   const xScalable = !xTickLabels;
   if (!xScalable) kinds.x = 'linear';
+  const widestCategoryPx = xTickLabels ? widestLabelPx(Object.values(xTickLabels), getComputedStyle(container).fontFamily) : 0;
 
   container.replaceChildren();
   container.classList.add('scatter');
@@ -161,21 +179,22 @@ export function drawScatter(container, input, options = {}) {
     getState: () => ({ renderer: rendererKind, xScale: kinds.x, yScale: kinds.y, hidden: 0 }),
   };
 
-  if (points.length === 0) {
+  if (points.length === 0 && !input.groupNames?.length) {
     container.append(htmlEl('p', 'scatter-empty', 'No data to plot.'));
     return handle;
   }
 
   // Groups are sorted by name so the same person gets the same color and
   // shape on every chart, regardless of input order.
-  const groups = [...new Set(points.map((p) => p.group ?? ''))].sort();
+  const groups = input.groupNames ?? [...new Set(points.map((p) => p.group ?? ''))].sort();
+  const slots = new Map(groups.map((g, i) => [g, input.groupSlots?.[g] ?? i]));
   const hasGroups = groups.length > 1 || groups[0] !== '';
 
   /** @type {Mark[]} */
   const marks = points.map((p, i) => ({
     point: p,
     group: p.group ?? '',
-    slot: groups.indexOf(p.group ?? ''),
+    slot: slots.get(p.group ?? '') ?? 0,
     noise: stableNoise(i),
     x: p.x,
     y: p.y,
@@ -200,19 +219,19 @@ export function drawScatter(container, input, options = {}) {
     const xs = points.map((p) => p.x);
     if (xTickLabels) {
       const keys = Object.keys(xTickLabels).map(Number).concat(xs);
-      return [Math.min(...keys) - 0.5, Math.max(...keys) + 0.5];
+      return [keys.reduce((a, b) => Math.min(a, b), Infinity) - 0.5, keys.reduce((a, b) => Math.max(a, b), -Infinity) + 0.5];
     }
-    return paddedExtent(kinds.x, xs);
+    return paddedExtent(kinds.x, input.xRanges?.[kinds.x] ?? xs);
   }
   /** @returns {[number, number]} */
   function homeY() {
-    return paddedExtent(kinds.y, points.map((p) => p.y));
+    return paddedExtent(kinds.y, input.yRanges?.[kinds.y] ?? points.map((p) => p.y));
   }
   let home = { x: homeX(), y: homeY() };
-  let view = { x: home.x, y: home.y };
+  let view = options.view ?? { x: home.x, y: home.y };
 
   /** @type {Set<string>} groups switched off in the legend */
-  const hidden = new Set();
+  const hidden = new Set(input.hiddenGroups ?? []);
   /** @type {string | null} group being hovered in the legend */
   let highlighted = null;
 
@@ -249,16 +268,18 @@ export function drawScatter(container, input, options = {}) {
   const tooltip = htmlEl('div', 'scatter-tooltip');
   tooltip.hidden = true;
 
-  container.append(legend, toolbar, plot, buildTable());
+  container.append(legend, toolbar, plot);
 
   // ---- Render state read by the event handlers ----------------------------
-  const plotH = HEIGHT - MARGIN.top - MARGIN.bottom;
+  let plotH = HEIGHT - MARGIN.top - MARGIN.bottom;
   let plotW = 0;
   /** @type {import('./scales.js').Scale} */ let sx = makeScale(kinds.x, view.x, [0, 1]);
   /** @type {import('./scales.js').Scale} */ let sy = makeScale(kinds.y, view.y, [0, 1]);
   /** @type {import('./render-common.js').Scene | null} */ let scene = null;
   /** @type {import('./render-common.js').Renderer} */
   let renderer = rendererKind === 'svg' ? createSvgRenderer() : createCanvasRenderer();
+  let statText = '';
+  /** @type {HTMLSpanElement | null} */ let trendStatEl = null;
   let lastHidden = -1;
 
   placeMarks();
@@ -270,7 +291,7 @@ export function drawScatter(container, input, options = {}) {
 
   function reportHidden() {
     const n = countUnplottable();
-    if (n !== lastHidden) { lastHidden = n; options.onHidden?.(n); }
+    options.onHidden?.(n, { ...kinds });
   }
 
   /** @param {'x' | 'y'} axis */
@@ -281,6 +302,7 @@ export function drawScatter(container, input, options = {}) {
     const scale = isX ? sx : sy;
     const px = isX ? plotW : plotH;
     if (isX && xTickLabels) {
+      const step = categoryLabelStep(Math.abs(scale.map(1) - scale.map(0)), widestCategoryPx);
       return Object.entries(xTickLabels)
         .map(([k, text]) => ({ v: Number(k), text }))
         .filter((t) => t.v >= t0 && t.v <= t1)
@@ -294,9 +316,16 @@ export function drawScatter(container, input, options = {}) {
     return nt.ticks.map((v) => ({ px: scale.map(v), text: formatTick(v, nt.step) }));
   }
 
+  const fitCache = new Map();
+  let meanCache = null;
+  let dataVersion = 0;
+
   /** @returns {import('./render-common.js').Scene} */
   function buildScene() {
-    const width = Math.max(320, plot.clientWidth || 640);
+    const width = Math.max(240, plot.clientWidth || 640);
+    const expanded = document.fullscreenElement === container || container.classList.contains('chart-expanded');
+    const height = expanded ? Math.max(HEIGHT, window.innerHeight - 210 - legend.clientHeight) : HEIGHT;
+    plotH = height - MARGIN.top - MARGIN.bottom;
     plotW = width - MARGIN.left - MARGIN.right;
     const left = MARGIN.left;
     const right = MARGIN.left + plotW;
@@ -314,7 +343,9 @@ export function drawScatter(container, input, options = {}) {
     let cornerLabel = null;
     if (showTrend && visible.length >= 2) {
       const xy = visible.map((m) => ({ x: m.point.x, y: m.point.y }));
-      const stats = computeStats(xy);
+      const cacheKey = `${dataVersion}:${kinds.x}:${kinds.y}`;
+      if (!fitCache.has(cacheKey)) fitCache.set(cacheKey, input.statsOverride ?? computeStats(xy));
+      const stats = fitCache.get(cacheKey);
       if (Number.isFinite(stats.slope) && Number.isFinite(stats.intercept)) {
         const straight = kinds.x === 'linear' && kinds.y === 'linear';
         const samples = straight ? 2 : TREND_SAMPLES;
@@ -332,10 +363,13 @@ export function drawScatter(container, input, options = {}) {
       }
     }
 
+    statText = stat;
     const lines = [];
     if (connectGroups) {
-      for (const group of groups) {
-        const pts = visible.filter((m) => m.group === group).sort((a, b) => a.x - b.x);
+      const buckets = new Map();
+      for (const m of visible) { if (!buckets.has(m.group)) buckets.set(m.group, []); buckets.get(m.group).push(m); }
+      for (const [group, unsorted] of buckets) {
+        const pts = unsorted.sort((a, b) => a.x - b.x);
         if (pts.length < 2) continue;
         lines.push({
           group, slot: pts[0].slot, pts: /** @type {[number, number][]} */ (pts.map((m) => [sx.map(m.x), sy.map(m.y)])),
@@ -343,7 +377,8 @@ export function drawScatter(container, input, options = {}) {
       }
     }
 
-    const means = (showMeans ? computeMeans(visible) : []).map((mean) => {
+    meanCache ??= showMeans ? (input.meanPoints ?? computeMeans(visible)).filter(m => isPlottable(kinds.x, m.x) && isPlottable(kinds.y, m.y)) : [];
+    const means = meanCache.map((mean) => {
       const c = sx.map(mean.x);
       const half = kinds.x === 'log' ? LOG_MEAN_HALF_PX : Math.abs(sx.map(mean.x + MEAN_HALF_WIDTH) - c);
       return { x0: c - half, x1: c + half, y: sy.map(mean.y), mean };
@@ -351,7 +386,7 @@ export function drawScatter(container, input, options = {}) {
 
     return {
       width,
-      height: HEIGHT,
+      height,
       plot: { left, right, top, bottom },
       xTicks: tickList('x'),
       yTicks: tickList('y'),
@@ -371,6 +406,7 @@ export function drawScatter(container, input, options = {}) {
     scene = buildScene();
     renderer.draw(scene);
     renderer.setHighlight(highlighted);
+    if (trendStatEl && trendStatEl.textContent !== statText) trendStatEl.textContent = statText;
   }
 
   // ---- Hover / tooltip ----------------------------------------------------
@@ -420,6 +456,7 @@ export function drawScatter(container, input, options = {}) {
       const { mark } = hit;
       heading = hasGroups ? mark.group || '(no group)' : '';
       rows = [[xLabel, xText(mark.point.x)], [yLabel, formatValue(mark.point.y)]];
+      if (mark.point.category) rows.unshift(['Category', mark.point.category]);
       renderer.setHover({ px: sx.map(mark.x), py: sy.map(mark.y) });
     } else {
       const { mean } = hit;
@@ -549,11 +586,13 @@ export function drawScatter(container, input, options = {}) {
     if (axis === 'x' && !xScalable) return;
     if (kind === kinds[axis]) return;
     kinds[axis] = kind;
+    meanCache = null;
     if (selects[axis]) selects[axis].value = kind;
     placeMarks();
-    // The old view is in the other scale's units; start this axis over.
+    // The old view is in the other scale's units, and zoom always scales both
+    // axes together, so resetting only this axis would leave the other zoomed.
     home = { x: homeX(), y: homeY() };
-    view = { ...view, [axis]: home[axis] };
+    view = { x: home.x, y: home.y };
     hideTooltip();
     render();
     reportHidden();
@@ -561,33 +600,54 @@ export function drawScatter(container, input, options = {}) {
 
   handle.setRenderer = setRenderer;
   handle.setScale = setScale;
-  handle.getState = () => ({ renderer: rendererKind, xScale: kinds.x, yScale: kinds.y, hidden: countUnplottable() });
+  handle.getState = () => ({ renderer: rendererKind, xScale: kinds.x, yScale: kinds.y, hidden: countUnplottable(), view: { x: [...view.x], y: [...view.y] }, maxWidth: layout.getWidth(), legendPage, legendQuery });
 
-  // ---- Legend -------------------------------------------------------------
-  if (hasGroups) {
-    groups.forEach((group, slot) => {
-      const btn = htmlEl('button', 'legend-item');
-      btn.type = 'button';
-      btn.setAttribute('aria-pressed', 'true');
-      btn.title = 'Click to show/hide';
-      btn.append(markerSwatch(slot), htmlEl('span', '', group || '(no group)'));
-
-      btn.addEventListener('click', () => {
-        if (hidden.has(group)) hidden.delete(group); else hidden.add(group);
-        btn.setAttribute('aria-pressed', String(!hidden.has(group)));
-        hideTooltip();
-        render();
-        reportHidden();
-      });
-      const on = () => { highlighted = group; renderer.setHighlight(group); };
-      const off = () => { highlighted = null; renderer.setHighlight(null); };
-      btn.addEventListener('mouseenter', on);
-      btn.addEventListener('focus', on);
-      btn.addEventListener('mouseleave', off);
-      btn.addEventListener('blur', off);
-      legend.append(btn);
+  // ---- Legend: retain per-chart hide/show, with bounded controls for large data.
+  let legendPage = options.legendPage ?? 0;
+  let legendQuery = options.legendQuery ?? '';
+  function legendButton(group) {
+    const slot = slots.get(group) ?? 0;
+    const btn = htmlEl('button', 'legend-item');
+    btn.type = 'button'; btn.title = 'Click to show/hide';
+    btn.setAttribute('aria-pressed', String(!hidden.has(group)));
+    btn.append(markerSwatch(slot), htmlEl('span', '', group || '(no group)'));
+    btn.addEventListener('click', () => {
+      if (hidden.has(group)) hidden.delete(group); else hidden.add(group);
+      btn.setAttribute('aria-pressed', String(!hidden.has(group)));
+      if (highlighted === group && hidden.has(group)) highlighted = null;
+      hideTooltip(); fitCache.clear(); meanCache = null; dataVersion++;
+      if (options.onVisibilityChange) options.onVisibilityChange([...hidden]);
+      else { render(); reportHidden(); }
     });
+    // A hidden group has nothing to highlight; highlighting it would dim every visible group.
+    const on = () => { if (hidden.has(group)) return; highlighted = group; renderer.setHighlight(group); };
+    const off = () => { highlighted = null; renderer.setHighlight(null); };
+    btn.addEventListener('mouseenter', on); btn.addEventListener('focus', on);
+    btn.addEventListener('mouseleave', off); btn.addEventListener('blur', off);
+    return btn;
   }
+  const legendItems = htmlEl('div', 'legend-items');
+  if (hasGroups && groups.length > 20) {
+    const find = htmlEl('input'); find.type = 'search'; find.placeholder = 'Find a group'; find.value = legendQuery;
+    find.setAttribute('aria-label', 'Find a group in this legend');
+    const previous = htmlEl('button', '', 'Previous groups'); previous.type = 'button';
+    const next = htmlEl('button', '', 'Next groups'); next.type = 'button';
+    const count = htmlEl('span', 'legend-count');
+    const controls = htmlEl('div', 'legend-paging'); controls.append(find, previous, count, next);
+    const redrawLegend = () => {
+      const matching = groups.filter(g => g.toLowerCase().includes(legendQuery.trim().toLowerCase()));
+      const pages = Math.max(1, Math.ceil(matching.length / 20));
+      legendPage = Math.min(Math.max(0, legendPage), pages - 1);
+      legendItems.replaceChildren(...matching.slice(legendPage * 20, (legendPage + 1) * 20).map(legendButton));
+      count.textContent = `${legendPage + 1} / ${pages} · ${matching.length} groups`;
+      previous.disabled = legendPage === 0; next.disabled = legendPage + 1 === pages;
+    };
+    find.addEventListener('input', () => { legendQuery = find.value; legendPage = 0; redrawLegend(); });
+    previous.onclick = () => { legendPage--; redrawLegend(); };
+    next.onclick = () => { legendPage++; redrawLegend(); };
+    legend.append(controls, legendItems); redrawLegend();
+  } else if (hasGroups) { legendItems.append(...groups.map(legendButton)); legend.append(legendItems); }
+  if (input.aggregate) legend.append(lineKey('mean', 'Category mean (visible groups)'));
   if (showMeans) legend.append(lineKey('mean', 'Mean'));
   if (showTrend) legend.append(lineKey('trend', 'Linear fit'));
 
@@ -611,40 +671,23 @@ export function drawScatter(container, input, options = {}) {
     return item;
   }
 
-  // ---- Data table (accessible alternative to the picture) -----------------
-  function buildTable() {
-    const details = htmlEl('details', 'scatter-table');
-    details.append(htmlEl('summary', '', 'Show data table'));
-    const table = htmlEl('table');
-    const headRow = htmlEl('tr');
-    for (const h of [...(hasGroups ? ['Group'] : []), xLabel || 'X', yLabel || 'Y']) headRow.append(htmlEl('th', '', h));
-    table.append(htmlEl('thead'));
-    table.tHead?.append(headRow);
-
-    const body = htmlEl('tbody');
-    const sorted = [...points].sort((a, b) => (a.group ?? '').localeCompare(b.group ?? '') || a.x - b.x);
-    for (const p of sorted) {
-      const tr = htmlEl('tr');
-      if (hasGroups) tr.append(htmlEl('td', '', p.group ?? ''));
-      tr.append(htmlEl('td', 'num', xTickLabels?.[p.x] ?? formatValue(p.x)), htmlEl('td', 'num', formatValue(p.y)));
-      body.append(tr);
-    }
-    table.append(body);
-    details.append(table);
-    return details;
-  }
-
   // ---- Initial render + re-render on width change -------------------------
   plot.append(renderer.el, tooltip);
   render();
   reportHidden();
   let lastWidth = plot.clientWidth;
-  new ResizeObserver(() => {
+  const observer = new ResizeObserver(() => {
     if (plot.clientWidth === lastWidth) return;
     lastWidth = plot.clientWidth;
     hideTooltip();
     render();
-  }).observe(plot);
+  });
+  observer.observe(plot);
+  const layout = addLayoutControls(container, () => { hideTooltip(); render(); }, options.maxWidth ?? '960');
+  const removeImages = addImageActions(container);
+  const resize = () => { hideTooltip(); render(); };
+  window.addEventListener('resize', resize);
+  handle.destroy = (preserveFullscreen = false) => { observer.disconnect(); window.removeEventListener('resize', resize); removeImages(); layout.destroy(preserveFullscreen); renderer.destroy(); container.replaceChildren(); };
 
   return handle;
 }

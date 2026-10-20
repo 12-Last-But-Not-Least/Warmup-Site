@@ -1,4 +1,4 @@
-import Papa from 'papaparse';
+import Papa from './vendor/papa.js';
 
 const numericPattern = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
