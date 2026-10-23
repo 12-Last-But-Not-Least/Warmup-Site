@@ -51,6 +51,23 @@ The **Lint** GitHub Actions workflow runs on every pull request and pushes to
 check before merging, a repository administrator can make `lint` a required status
 check in the branch protection settings for `main`.
 
+### Fix a branch from GitHub
+
+After this workflow is merged into `main`, open **Actions → Fix lint → Run
+workflow**, choose the branch in **Use workflow from**, and click **Run workflow**.
+The selected branch must contain the workflow and lint configuration.
+
+The action runs `npm run lint:fix` and commits any fixes to tracked JavaScript
+files back to that same branch. Open PRs from the branch update automatically.
+If nothing changes, no commit is created. Fixes are committed even if other lint
+errors remain; the final check fails until those remaining issues are fixed manually.
+
+The action uses GitHub's built-in token, so no extra secret is needed. Its bot
+push does not trigger another automatic CI run; the action runs lint again itself.
+If a PR requires a separate check on the new commit, run **Lint** manually on that
+branch. Branch protection still applies, and a concurrent branch update can reject
+the push; rerun the action on the updated branch in that case.
+
 ---
 
 ## How to use it
