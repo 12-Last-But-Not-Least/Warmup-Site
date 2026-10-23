@@ -31,6 +31,28 @@ Open http://localhost:3000. (`npx serve` works too.)
 
 ---
 
+## Linting
+
+Install dependencies with `npm ci` (Node.js 24 is used in CI), then run:
+
+```sh
+npm run lint
+npm run lint:fix
+```
+
+`lint` checks all JavaScript with ESLint's recommended rules and fails on any
+errors or warnings. `lint:fix` applies available automatic fixes; any remaining
+issues must be fixed manually. Browser globals apply to `src/`, while `server.js`
+uses Node.js and CommonJS. `src/data.js` also allows Node.js globals for its CLI.
+Generated `_site/` output and `node_modules/` are ignored.
+
+The **Lint** GitHub Actions workflow runs on every pull request and pushes to
+`main`. Run the same lint command before submitting changes. To require a passing
+check before merging, a repository administrator can make `lint` a required status
+check in the branch protection settings for `main`.
+
+---
+
 ## How to use it
 
 1. Pick a file for **First CSV** and another for **Second CSV**.

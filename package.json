@@ -3,9 +3,16 @@
   "private": true,
   "scripts": {
     "parse:data": "node src/data.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "lint": "eslint . --max-warnings=0",
+    "lint:fix": "eslint . --fix --max-warnings=0"
   },
   "dependencies": {
     "papaparse": "5.7.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0"
   }
 }
