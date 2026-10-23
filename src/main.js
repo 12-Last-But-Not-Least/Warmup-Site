@@ -98,18 +98,24 @@ function showWarnings(messages) {
 function showCharts(textA, nameA, textB, nameB) {
   const a = buildPlotData(textA);
   const b = buildPlotData(textB);
-  showWarnings([
+  const messages = [
+    ...a.errors.map((message) => `${nameA}: Error: ${message}`),
+    ...b.errors.map((message) => `${nameB}: Error: ${message}`),
     ...a.warnings.map((message) => `${nameA}: ${message}`),
     ...b.warnings.map((message) => `${nameB}: ${message}`),
-  ]);
+  ];
+  showWarnings(messages);
 
-  if (a.series.length === 0 || b.series.length === 0) {
+  if (a.errors.length || b.errors.length || a.series.length === 0 || b.series.length === 0) {
     chartsEl.hidden = true; // don't leave the previous charts on screen
-    statusEl.textContent = 'One of the files has no usable data. See the messages below.';
+    statusEl.textContent = 'One of the files failed validation or has no usable data. See the messages below.';
     return;
   }
 
   const scatter = toScatterInput(a, b);
+  if (!scatter.points.length) {
+    showWarnings([...messages, 'No matching numeric observations: the files must share a person and category to populate the scatter plot.']);
+  }
   chartsEl.hidden = false; // show before drawing so the charts can measure their width
   drawScatter(byId('chart-a'), toLineInput(a, nameA));
   drawScatter(byId('chart-b'), toLineInput(b, nameB));
@@ -131,6 +137,8 @@ async function onFilesChanged() {
   const fileA = fileInputA.files?.[0];
   const fileB = fileInputB.files?.[0];
   if (!fileA || !fileB) {
+    chartsEl.hidden = true;
+    showWarnings([]);
     statusEl.textContent = 'Now pick the other file to see the charts.';
     return;
   }

@@ -76,12 +76,33 @@ Jay's Monday steps go with Jay's Monday sleep, even if the second file lists its
 columns in a different order. A person or column that's only in one file still
 appears on that file's line chart but is left off the scatter plot.
 
-**What happens to problems in the files:**
+**Validation rules:**
 
-- **Blank cells** are skipped, so they don't show up as zeros. The page says how many.
-- **Text where a number should be** is skipped the same way.
-- **A file with a broken header** (empty or repeated column names) shows a message
-  explaining what's wrong, and no charts appear.
+Both uploads and example buttons use `parseCsv(text)` in `src/data.js`.
+Papa Parse reads comma-separated records with quoted fields, escaped quotes,
+UTF-8 BOMs, and LF or CRLF line endings. Validation then enforces this layout:
+
+- At least two columns: a metric name and one or more categories.
+- All header names must be nonempty and unique after trimming whitespace.
+- Person/group names are trimmed and case-sensitive; duplicate names are errors.
+- Nonblank records must contain the same number of fields as the header.
+- Measurements accept finite decimal numbers, including negatives and scientific
+  notation. Blanks are missing values, never zeros. Units and thousands separators
+  in numeric cells are not supported.
+- Each file must have at least one usable numeric observation.
+
+**Errors** block charting: empty/nontext input, malformed CSV quoting, invalid
+headers, duplicate people, or no usable numeric data. Previous charts are hidden.
+**Warnings** skip only the affected data: wrong-width rows, blank group names,
+blank measurements, or nonnumeric measurements. Completely blank rows are ignored.
+Messages include the filename and record/column where available. Record numbers
+include the header; a quoted multiline field still belongs to one CSV record.
+
+The files may have different metrics, people, categories, and ordering. Pairing
+uses trimmed, case-sensitive person and category names. If no valid observations
+match, a warning explains the empty scatter plot and both line charts remain.
+
+Run the CSV validation tests with `npm test` after `npm install`.
 
 ---
 
@@ -123,14 +144,20 @@ chart.js    draws each chart
 **`src/data.js`** (CSV reading). Main function:
 
 ```js
-const { series, valueHeader, xTickLabels, warnings } = buildPlotData(csvText);
+const { series, valueHeader, xTickLabels, errors, warnings } = buildPlotData(csvText);
 ```
 
 - `series`: one entry per person, e.g. `{ group: 'Jay', points: [[0, 7440], [1, 10560], ...] }`.
   The first number in each point is the column position (0 = first column after the names).
 - `valueHeader`: the top-left cell, e.g. `'Step Count'`.
 - `xTickLabels`: column names by position, e.g. `{ 0: 'Monday', 1: 'Tuesday', ... }`.
+- `errors`: blocking validation messages.
 - `warnings`: plain-English messages about anything skipped.
+
+`parseCsv(text)` returns `{ columns, rows, errors, warnings }`. Rows contain
+trimmed strings with invalid measurements replaced by empty strings. Callers must
+check `errors` before using the rows. `buildPlotData()` validates once and returns
+no series when errors exist.
 
 It uses [Papa Parse](https://www.papaparse.com/) to read CSV files correctly.
 `index.html` loads Papa Parse from a CDN, which is why there's nothing to install
