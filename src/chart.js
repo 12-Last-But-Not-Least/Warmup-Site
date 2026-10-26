@@ -6,45 +6,62 @@
  *
  * Interaction: hover for a tooltip (nearest point), drag to pan,
  * Ctrl/⌘ + scroll (or trackpad pinch) to zoom, double-click or "Reset" to restore.
+ * @module chart
  */
 import { linearFit, pearson } from './stats.js';
 
 /**
+ * One data point on the chart.
  * @typedef {Object} Point
- * @property {number} x
- * @property {number} y
- * @property {string} [group]   // person name, used for color
- *
+ * @property {number} x - X-axis coordinate.
+ * @property {number} y - Y-axis coordinate.
+ * @property {string} [group] - Group name used to select the marker color and shape.
+ */
+
+/**
+ * Data and display settings for one chart.
  * @typedef {Object} PlotInput
- * @property {string} title
- * @property {string} xLabel
- * @property {string} yLabel
- * @property {Point[]} points
- * @property {Object<number,string>} [xTickLabels]  // e.g. {0:"Mon",...,6:"Sun"}
- * @property {boolean} [showTrend]   // linear fit line + r in the corner
- * @property {boolean} [showMeans]   // mean marker per distinct x (weekday plots)
- * @property {number}  [jitter]      // horizontal jitter in x units (weekday plots)
- * @property {boolean} [connectGroups] // join each group's points in x order (line chart)
+ * @property {string} title - Title displayed above the chart.
+ * @property {string} xLabel - X-axis title; an empty string hides the title.
+ * @property {string} yLabel - Y-axis title; an empty string hides the title.
+ * @property {Point[]} points - Data points to display on the chart.
+ * @property {Object<number, string>} [xTickLabels] - Labels for X-axis positions, such as 0: "Monday".
+ * @property {boolean} [showTrend=false] - Draw a linear regression line and display the Pearson correlation coefficient.
+ * @property {boolean} [showMeans=false] - Draw a mean Y-value marker at each distinct X position.
+ * @property {number} [jitter=0] - Horizontal offset amount in X-axis units used to separate overlapping points; ignored when connectGroups is true.
+ * @property {boolean} [connectGroups=false] - Connect each group's points with a line in X-coordinate order.
  */
 
 /**
  * @typedef {Object} Scale
- * @property {(v: number) => number} map      data value -> pixel
- * @property {(px: number) => number} invert  pixel -> data value
- *
- * @typedef {Object} Mark   one drawn point
- * @property {Point} point  original input point (un-jittered)
- * @property {string} group
- * @property {number} slot  index into the color/shape tables
- * @property {number} x     drawn x (after jitter)
- * @property {number} y
- * @property {SVGPathElement} [el]
- *
- * @typedef {Object} Mean   one mean marker (per distinct x)
- * @property {number} x
- * @property {number} y
- * @property {number} n
- *
+ * @property {function(number): number} map - Convert a data value to pixels.
+ * @property {function(number): number} invert - Convert pixels to a data value.
+ */
+
+/**
+ * Drawing information for one data point.
+ * @typedef {Object} Mark
+ * @property {Point} point - Original data point before jitter is applied.
+ * @property {string} group - Group name, or an empty string when no group is specified.
+ * @property {number} slot - Zero-based group index used to select the marker color and shape.
+ * @property {number} x - X coordinate used for drawing, including any horizontal jitter.
+ * @property {number} y - Y coordinate used for drawing.
+ * @property {SVGPathElement} [el] - SVG path element representing the marker, assigned during rendering.
+ */
+
+/**
+ * Mean Y value for data points sharing the same X coordinate.
+ * @typedef {Object} Mean
+ * @property {number} x - Shared X coordinate of the data points.
+ * @property {number} y - Mean Y value of those data points.
+ * @property {number} n - Number of data points included in the mean.
+ */
+
+/**
+ * A chart item found near the pointer.
+ * When kind is 'point', mark contains the individual point's drawing information.
+ * When kind is 'mean', mean contains the mean marker's position, value, and count.
+ * Used to choose the tooltip content and hover indicator.
  * @typedef {{kind: 'point', mark: Mark} | {kind: 'mean', mean: Mean}} Hit
  */
 
@@ -71,8 +88,8 @@ let instanceCounter = 0; // for unique clipPath ids when several charts share a 
 
 /**
  * Linear map from a data domain to a pixel range.
- * @param {[number, number]} domain
- * @param {[number, number]} range
+ * @param {number[]} domain - Two data bounds: [minimum, maximum].
+ * @param {number[]} range - Two pixel bounds: [start, end].
  * @returns {Scale}
  */
 export function linearScale(domain, range) {
@@ -86,9 +103,10 @@ export function linearScale(domain, range) {
 }
 
 /**
- * A "nice" step (1, 2 or 5 times a power of ten) giving roughly `count` intervals.
- * @param {number} span
- * @param {number} count
+ * Calculate a readable tick interval using 1, 2, or 5 times a power of ten.
+ * @param {number} span - Width of the axis range, calculated as maximum minus minimum.
+ * @param {number} count - Desired number of intervals across the axis range.
+ * @returns {number} Tick interval chosen to produce approximately the desired number of intervals.
  */
 export function niceStep(span, count) {
   const raw = span / Math.max(1, count);
@@ -99,11 +117,11 @@ export function niceStep(span, count) {
 }
 
 /**
- * Tick values at multiples of a nice step inside [min, max].
- * @param {number} min
- * @param {number} max
- * @param {number} count  desired number of intervals
- * @returns {{ticks: number[], step: number}}
+ * Calculate readable tick values within the inclusive range [min, max].
+ * @param {number} min - Lower bound of the axis range.
+ * @param {number} max - Upper bound of the axis range.
+ * @param {number} count - Desired number of intervals across the axis range.
+ * @returns {{ticks: number[], step: number}} An object containing ticks, the tick values in ascending order, and step, the interval between ticks.
  */
 export function niceTicks(min, max, count) {
   const step = niceStep(max - min, count);
@@ -116,24 +134,30 @@ export function niceTicks(min, max, count) {
 }
 
 /**
- * Format a tick value with just enough decimals for the tick step.
- * @param {number} v
- * @param {number} step
+ * Format an axis tick value using decimal places determined by the tick interval.
+ * @param {number} v - Numeric tick value to format.
+ * @param {number} step - Tick interval used to determine the number of decimal places.
+ * @returns {string} Tick label formatted using the user's locale.
  */
 function formatTick(v, step) {
   const decimals = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
   return v.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
-/** @param {number} v */
+/**
+ * Format a data value for display in tooltips and data tables.
+ * @param {number} v - Numeric value to format.
+ * @returns {string} Value formatted using the user's locale, with at most two decimal places.
+ */
 function formatValue(v) {
   return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
 /**
  * Data extent padded on both sides so points don't sit on the frame.
- * @param {number[]} values
- * @returns {[number, number]}
+ * @param {number[]} values - Data values used to calculate the bounds.
+ * @param {number} [pad=0.06] - Padding on each side as a fraction of the span.
+ * @returns {number[]} Two padded bounds in order: [minimum, maximum].
  */
 function paddedExtent(values, pad = 0.06) {
   let min = Math.min(...values);
@@ -144,9 +168,11 @@ function paddedExtent(values, pad = 0.06) {
 }
 
 /**
- * Deterministic pseudo-random number in [-1, 1] for index i, so jitter
- * stays put across re-renders instead of shimmering while panning.
- * @param {number} i
+ * Generate a deterministic pseudo-random value between -1 and 1.
+ * The same index always produces the same value, keeping horizontal jitter
+ * stable when the chart is redrawn during zooming or panning.
+ * @param {number} i - Zero-based index of the data point.
+ * @returns {number} Pseudo-random value used to calculate the point's horizontal offset.
  */
 function stableNoise(i) {
   const s = Math.sin((i + 1) * 12.9898) * 43758.5453;
@@ -158,10 +184,11 @@ function stableNoise(i) {
 // ---------------------------------------------------------------------------
 
 /**
- * @param {string} tag
- * @param {Record<string, string | number>} [attrs]
- * @param {Element} [parent]
- * @returns {any}  typed loosely so callers can treat it as the specific SVG element
+ * Create an SVG element, set its attributes, and optionally append it to a parent.
+ * @param {string} tag - SVG tag name, such as 'line', 'text', or 'path'.
+ * @param {Record<string, string|number>} [attrs] - Attribute names and values to assign to the element.
+ * @param {Element} [parent] - Parent element to append the new element to; if omitted, the element remains unattached.
+ * @returns {any} The created SVG element; typed loosely so callers can use properties specific to its tag.
  */
 function svgEl(tag, attrs = {}, parent) {
   const node = document.createElementNS(SVG_NS, tag);
@@ -171,11 +198,15 @@ function svgEl(tag, attrs = {}, parent) {
 }
 
 /**
+ * Create an HTML element with an optional CSS class and text content.
+ * The tag parameter is an HTML tag name, such as 'div', 'button', or 'table'.
+ * K represents the supplied tag name.
+ * Returns the corresponding HTML element, such as a button element for 'button'.
+ * The caller is responsible for adding the element to the page.
  * @template {keyof HTMLElementTagNameMap} K
- * @param {K} tag
- * @param {string} [className]
- * @param {string} [text]
- * @returns {HTMLElementTagNameMap[K]}
+ * @param {K} tag - HTML tag name that determines the element to create.
+ * @param {string} [className] - CSS class name to assign to the element.
+ * @param {string} [text] - Text content to display inside the element.
  */
 function htmlEl(tag, className, text) {
   const node = document.createElement(tag);
@@ -184,15 +215,21 @@ function htmlEl(tag, className, text) {
   return node;
 }
 
-/** @param {number} slot */
+/**
+ * Select a marker or line color for a group slot.
+ * @param {number} slot - Zero-based group index used to select a series color.
+ * @returns {string} CSS variable reference for the selected color, or the fallback color for slots beyond the eight defined series colors.
+ */
 function colorFor(slot) {
   return slot < SERIES_SLOTS ? `var(--series-${slot + 1})` : 'var(--series-other)';
 }
 
 /**
- * Path data for a marker shape centered on (0, 0); positioned with a transform.
- * @param {number} slot
- * @param {number} r
+ * Create SVG path data for a marker shape centered at (0, 0).
+ * The caller positions the marker using an SVG transform.
+ * @param {number} slot - Zero-based group index used to select the marker shape; slots beyond the eight defined series use a circle.
+ * @param {number} r - Base marker size in SVG units; each shape scales its dimensions from this value.
+ * @returns {string} SVG path commands to use as a path element's d attribute.
  */
 function shapePath(slot, r) {
   const shape = slot < SERIES_SLOTS ? SLOT_SHAPES[slot] : 'circle';
@@ -224,10 +261,10 @@ function shapePath(slot, r) {
 // ---------------------------------------------------------------------------
 
 /**
- * Render an interactive scatter plot into `container`, replacing its contents.
- * @param {HTMLElement} container
- * @param {PlotInput} input
- * @returns {void}
+ * Render an interactive scatter plot into the container, replacing its contents.
+ * @param {HTMLElement} container - HTML element in which to display the chart.
+ * @param {PlotInput} input - Chart data and settings, including points, title, axis labels, and display options.
+ * @returns {void} Updates the container without returning a value.
  */
 export function drawScatter(container, input) {
   const { title, xLabel, yLabel, xTickLabels, showTrend = false, showMeans = false, connectGroups = false } = input;
@@ -262,7 +299,10 @@ export function drawScatter(container, input) {
   // Initial ("home") view. With tick labels (categorical-ish x), give each
   // labeled position half a unit of room on either side.
   const xs = points.map((p) => p.x);
-  /** @type {[number, number]} */
+  /** 
+  * Initial X-axis bounds in order: [minimum, maximum].
+  * @type {number[]}
+  */
   let homeX;
   if (xTickLabels) {
     const keys = Object.keys(xTickLabels).map(Number).concat(xs);
@@ -273,10 +313,16 @@ export function drawScatter(container, input) {
   const homeY = paddedExtent(points.map((p) => p.y));
   let view = { x: homeX, y: homeY };
 
-  /** @type {Set<string>} groups switched off in the legend */
-  const hidden = new Set();
-  /** @type {string | null} group being hovered in the legend */
-  let highlighted = null;
+/**
+ * Groups switched off in the legend.
+ * @type {Set<string>}
+ */
+const hidden = new Set();
+/**
+ * Group being hovered in the legend.
+ * @type {string|null}
+ */
+let highlighted = null;
 
   // ---- DOM skeleton -------------------------------------------------------
   const legend = htmlEl('div', 'scatter-legend');
@@ -306,8 +352,11 @@ export function drawScatter(container, input) {
   /** @type {Mark[]} */ let visibleMarks = [];
   /** @type {Mean[]} */ let means = [];
   /** @type {SVGCircleElement | null} */ let hoverRing = null;
-  /** @type {Map<string, SVGPathElement>} one line per group when connectGroups is on */
-  let lines = new Map();
+ /**
+ * One line per group when connectGroups is enabled.
+ * @type {Map<string, SVGPathElement>}
+ */
+let lines = new Map();
 
   /** Rebuild the whole SVG for the current view. Cheap: data is small. */
   function render() {
@@ -342,7 +391,10 @@ export function drawScatter(container, input) {
       t.textContent = formatTick(v, yTicks.step);
     }
 
-    /** @type {{v: number, text: string}[]} */
+    /** 
+     * X-axis ticks, each containing a position and a display label.
+     * @type {Array.<{v: number, text: string}>}
+    */
     let xTicks;
     if (xTickLabels) {
       xTicks = Object.entries(xTickLabels)
@@ -477,7 +529,10 @@ export function drawScatter(container, input) {
   function showTooltip(hit, px, py) {
     if (!hit || !hoverRing) { hideTooltip(); return; }
 
-    /** @type {[string, string][]} */
+    /** 
+     * Tooltip rows, each containing two strings in order: [label, value].
+     * @type {string[][]}
+    */
     let rows;
     let heading;
     if (hit.kind === 'point') {
@@ -530,7 +585,12 @@ export function drawScatter(container, input) {
     render();
   }
 
-  /** @type {{px: number, py: number, x: [number, number], y: [number, number]} | null} */
+  /** 
+   * State saved at the start of a drag, or null when not dragging.
+   * px and py contain the pointer's starting position in pixels.
+   * x and y contain axis bounds in order: [minimum, maximum].
+   * @type {{px: number, py: number, x: number[], y: number[]}|null}
+  */
   let drag = null;
 
   svg.addEventListener('pointerdown', (e) => {
@@ -674,9 +734,10 @@ export function drawScatter(container, input) {
 }
 
 /**
- * Mean y for each distinct (un-jittered) x.
- * @param {Mark[]} marks
- * @returns {Mean[]}
+ * Calculate the mean Y value at each distinct original X coordinate.
+ * Points are combined across groups, using coordinates before jitter is applied.
+ * @param {Mark[]} marks - Markers whose original data points are used to calculate the means.
+ * @returns {Mean[]} One entry per distinct X coordinate, containing x, the mean y, and the number of points n.
  */
 function computeMeans(marks) {
   /** @type {Map<number, {sum: number, n: number}>} */
