@@ -5,12 +5,17 @@
     "test": "node --test",
     "parse:data": "node src/data.js",
     "start": "node server.js",
-    "docs": "jsdoc src -r -d Docs"
+    "docs": "jsdoc src -r -d Docs",
+    "lint": "eslint . --max-warnings=0",
+    "lint:fix": "eslint . --fix --max-warnings=0"
   },
   "dependencies": {
     "papaparse": "5.7.0"
   },
   "devDependencies": {
-    "jsdoc": "^4.0.5"
+    "jsdoc": "^4.0.5",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0"
   }
 }
