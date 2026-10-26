@@ -127,10 +127,6 @@ test.describe('uploading files', () => {
 
   for (const [name, text] of badFiles) {
     test(`bad file: ${name}`, async ({ page }) => {
-      // TODO: header only shows no message on main right now, fixed in #22.
-      // remove this line once #22 is merged
-      test.fail(name === 'header only');
-
       await page.locator('#file-a').setInputFiles(makeCsv('bad.csv', text));
       await page.locator('#file-b').setInputFiles('data/examples/screen_time.csv');
       await expect(page.locator('#warnings li').first()).toBeVisible();
