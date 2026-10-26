@@ -240,6 +240,53 @@ the same colour and shape on all three charts.
 
 ---
 
+## End-to-end tests
+
+These tests open the site in a real browser (Chromium) and use it the way a person
+would: clicking the example buttons, uploading files, hovering, zooming, and so on.
+
+**First time only:**
+
+```sh
+npm install
+npx playwright install chromium
+```
+
+**Run the tests:**
+
+```sh
+npm run test:e2e
+```
+
+They start the site on their own (no need for `npm start`) and take about 10 seconds.
+The site loads Papa Parse from a CDN, so you need an internet connection.
+
+**If a test fails,** run `npx playwright show-report`. It opens a page with a
+screenshot and a step-by-step replay of each failure.
+
+**What they check** (all in `e2e/site.spec.mjs`):
+
+- **First visit:** the upload panel shows and the charts are hidden.
+- **Example buttons:** each one draws two line charts and a scatter plot with the right
+  titles, number of lines, number of points and r value.
+- **Uploading:**
+  - the team's data files work, and skipped blank cells are reported;
+  - picking one file asks for the other;
+  - files with columns in a different order still pair up;
+  - bad files (empty, repeated column names, no numbers) show a message instead of
+    charts, and a bad file after a good one hides the old charts;
+  - names from a file are shown as text, never run as code.
+- **Charts:** tooltips, hiding and highlighting people from the legend, zoom, pan,
+  Reset view, and the data table.
+- **Phones:** the page fits a 375px-wide screen without sideways scrolling.
+
+The tests also fail if the page hits a JavaScript error or a missing file (404).
+
+**On GitHub:** the team's CI workflow (`.github/workflows/ci.yml`, issue #14) runs
+`npm run test:e2e` on every pull request. If the tests fail, the report is attached to the run.
+
+---
+
 ## Notes for the team
 
 - **Changing how files are read** (what counts as valid, how blanks are handled) happens in `src/data.js`.
