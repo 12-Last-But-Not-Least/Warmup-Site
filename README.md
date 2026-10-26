@@ -251,7 +251,7 @@ npm run test:watch     # re-run on change
 npm run test:coverage  # per-file coverage table (HTML report in coverage/)
 ```
 
-Chart and `main.js` tests run in jsdom. Not covered: the `parse:data` command-line entry point in `src/data.js` and `server.js`.
+Chart and `main.js` tests run in jsdom, and `server.js` is tested by starting it on a random port. The coverage table only measures `src/`. Not covered: the `parse:data` command-line entry point in `src/data.js`.
 
 ## Notes for the team
 

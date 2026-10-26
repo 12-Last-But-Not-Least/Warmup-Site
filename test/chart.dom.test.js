@@ -260,6 +260,9 @@ describe('drawScatter: tooltip', () => {
 describe('drawScatter: pan and zoom', () => {
   const pts = [pt(0, 0), pt(10, 10)];
   const firstX = () => posOf(points()[0]).clientX;
+  const spread = () => posOf(points()[1]).clientX - firstX();
+  const zoom = (deltaY, key = 'ctrlKey') => svgOf().dispatchEvent(
+    new WheelEvent('wheel', { deltaY, [key]: true, clientX: 300, clientY: 150, bubbles: true, cancelable: true }));
 
   it('pans while dragging and stops after release', () => {
     drawScatter(container, { ...base, points: pts });
@@ -299,31 +302,26 @@ describe('drawScatter: pan and zoom', () => {
     expect(firstX()).toBe(before);
   });
 
-  it('zooms about the cursor with Ctrl and with Meta', () => {
+  it('zooms in about the cursor with Ctrl and with Meta', () => {
     drawScatter(container, { ...base, points: pts });
-    const spread = () => posOf(points()[1]).clientX - posOf(points()[0]).clientX;
     const before = spread();
-    const e = new WheelEvent('wheel', { deltaY: -100, ctrlKey: true, clientX: 300, clientY: 150, bubbles: true, cancelable: true });
-    svgOf().dispatchEvent(e);
-    expect(e.defaultPrevented).toBe(true);
-    expect(spread()).toBeGreaterThan(before);
-    const mid = spread();
-    svgOf().dispatchEvent(new WheelEvent('wheel', { deltaY: -100, metaKey: true, clientX: 300, clientY: 150, bubbles: true }));
-    expect(spread()).toBeGreaterThan(mid);
+    expect(zoom(-100)).toBe(false); // preventDefault was called
+    const afterCtrl = spread();
+    expect(afterCtrl).toBeGreaterThan(before);
+    zoom(-100, 'metaKey');
+    expect(spread()).toBeGreaterThan(afterCtrl);
   });
 
   it('refuses to zoom beyond the limits', () => {
     drawScatter(container, { ...base, points: pts });
-    const wheel = deltaY => svgOf().dispatchEvent(
-      new WheelEvent('wheel', { deltaY, ctrlKey: true, clientX: 300, clientY: 150, bubbles: true, cancelable: true }));
-    for (let i = 0; i < 20; i++) wheel(-300); // far past 50x in
-    const zoomedIn = posOf(points()[1]).clientX - posOf(points()[0]).clientX;
-    wheel(-300);
-    expect(posOf(points()[1]).clientX - posOf(points()[0]).clientX).toBe(zoomedIn);
-    for (let i = 0; i < 20; i++) wheel(300); // far past 10x out
-    const zoomedOut = posOf(points()[1]).clientX - posOf(points()[0]).clientX;
-    wheel(300);
-    expect(posOf(points()[1]).clientX - posOf(points()[0]).clientX).toBe(zoomedOut);
+    for (let i = 0; i < 20; i++) zoom(-300); // far past 50x in
+    const zoomedIn = spread();
+    zoom(-300);
+    expect(spread()).toBe(zoomedIn);
+    for (let i = 0; i < 20; i++) zoom(300); // far past 10x out
+    const zoomedOut = spread();
+    zoom(300);
+    expect(spread()).toBe(zoomedOut);
   });
 
   it('resets the view with the button and with a double click', () => {

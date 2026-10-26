@@ -166,10 +166,10 @@ describe('buildPlotData', () => {
   });
 
   it('trims group names, preserves case and merges repeated groups', () => {
-    const { series } = buildPlotData('V,A,B\n Ana ,1,2\nAna,3,4\nana,5,6');
-    expect(series.map(s => s.group)).toEqual(['ana', 'Ana'].sort((a, b) => a.localeCompare(b)));
-    const ana = series.find(s => s.group === 'Ana');
-    expect(ana.points).toEqual([[0, 1], [0, 3], [1, 2], [1, 4]]);
+    const { series } = buildPlotData('V,A,B\n Ana ,1,2\nAna,3,4\nbob,5,6\nBob,7,8');
+    expect(series.map(s => s.group)).toHaveLength(3);
+    expect(series.find(s => s.group === 'Ana').points).toEqual([[0, 1], [0, 3], [1, 2], [1, 4]]);
+    expect(series.find(s => s.group === 'bob').points).toEqual([[0, 5], [1, 6]]);
   });
 
   it('sorts series by group name', () => {
