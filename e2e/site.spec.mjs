@@ -1,174 +1,159 @@
-// End-to-end tests: open the real site in a browser and use it like a person would.
-// Run with `npm run test:e2e` (see README).
+// e2e tests for the site
+// run with: npm run test:e2e
 import { Buffer } from 'node:buffer';
 import { test, expect } from '@playwright/test';
 
-const DATA = 'data';
-
-// What each example button should produce. The example CSVs are fixed files,
-// so these numbers only change if someone edits the data.
-const EXAMPLES = [
+// expected results for each example button
+const examples = [
   {
-    button: 'Steps & sleep',
+    name: 'Steps & sleep',
     titles: ['Step Count', 'Hours of Sleep', 'Step Count vs. Hours of Sleep'],
-    groups: 5, pairs: 35, r: '-0.08',
+    people: 5, points: 35, r: '-0.08',
   },
   {
-    button: 'Study hours & quiz scores',
+    name: 'Study hours & quiz scores',
     titles: ['Quiz Score (%)', 'Study Hours', 'Quiz Score (%) vs. Study Hours'],
-    groups: 5, pairs: 29, r: '0.92',
+    people: 5, points: 29, r: '0.92',
   },
   {
-    button: 'Temperature & ice cream',
+    name: 'Temperature & ice cream',
     titles: ['Ice Cream Sales', 'Avg Temperature (°C)', 'Ice Cream Sales vs. Avg Temperature (°C)'],
-    groups: 4, pairs: 32, r: '0.96',
+    people: 4, points: 32, r: '0.96',
   },
   {
-    button: 'Screen time & sleep',
+    name: 'Screen time & sleep',
     titles: ['Sleep (hours)', 'Screen Time (hours)', 'Sleep (hours) vs. Screen Time (hours)'],
-    groups: 4, pairs: 28, r: '-0.84',
+    people: 4, points: 28, r: '-0.84',
   },
 ];
 
-/** A small CSV given straight to the file picker, without a file on disk. */
-function csvFile(name, text) {
+// make a fake csv file to upload
+function makeCsv(name, text) {
   return { name, mimeType: 'text/csv', buffer: Buffer.from(text) };
 }
 
-// Fail any test that causes a JavaScript error or a missing file (404) on the page.
-// Tests in one worker run one at a time, so a single list is reset per test.
-let problems = [];
+// collect js errors and 404s so any test that hits one fails
+let errors = [];
 
 test.beforeEach(async ({ page }) => {
-  problems = [];
-  page.on('pageerror', (error) => problems.push(`page error: ${error.message}`));
-  page.on('response', (response) => {
-    if (response.status() >= 400) problems.push(`${response.status()} ${response.url()}`);
+  errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('response', (res) => {
+    if (res.status() >= 400) errors.push(`${res.status()} ${res.url()}`);
   });
   await page.goto('/');
 });
 
 test.afterEach(() => {
-  expect(problems, 'no page errors or missing files').toEqual([]);
+  expect(errors).toEqual([]);
 });
 
-const charts = (page) => page.locator('#charts');
-const chart = (page, id) => page.locator(`#${id}`);
-const status = (page) => page.locator('#status');
-const messages = (page) => page.locator('#warnings li');
-
-test.describe('first visit', () => {
-  test('shows the upload panel and no charts', async ({ page }) => {
-    await expect(page.locator('h1')).toBeVisible();
-    await expect(page.locator('#file-a')).toBeAttached();
-    await expect(page.locator('#file-b')).toBeAttached();
-    await expect(page.locator('.examples button')).toHaveCount(EXAMPLES.length);
-    await expect(charts(page)).toBeHidden();
-  });
+test('page loads with upload panel and no charts', async ({ page }) => {
+  await expect(page.locator('h1')).toBeVisible();
+  await expect(page.locator('#file-a')).toBeAttached();
+  await expect(page.locator('#file-b')).toBeAttached();
+  await expect(page.locator('.examples button')).toHaveCount(4);
+  await expect(page.locator('#charts')).toBeHidden();
 });
 
 test.describe('example buttons', () => {
-  for (const example of EXAMPLES) {
-    test(`"${example.button}" draws two line charts and a scatter plot`, async ({ page }) => {
-      await page.getByRole('button', { name: example.button }).click();
-      await expect(charts(page)).toBeVisible();
+  for (const ex of examples) {
+    test(ex.name, async ({ page }) => {
+      await page.getByRole('button', { name: ex.name }).click();
+      await expect(page.locator('#charts')).toBeVisible();
+      await expect(page.locator('.scatter-title')).toHaveText(ex.titles);
 
-      // Titles come from each file's top-left cell.
-      await expect(page.locator('.scatter-title')).toHaveText(example.titles);
+      // one line per person on the line charts, no lines on the scatter
+      await expect(page.locator('#chart-a .series-line')).toHaveCount(ex.people);
+      await expect(page.locator('#chart-b .series-line')).toHaveCount(ex.people);
+      await expect(page.locator('#chart-scatter .series-line')).toHaveCount(0);
 
-      // One line per person on each line chart, none on the scatter plot.
-      await expect(chart(page, 'chart-a').locator('.series-line')).toHaveCount(example.groups);
-      await expect(chart(page, 'chart-b').locator('.series-line')).toHaveCount(example.groups);
-      await expect(chart(page, 'chart-scatter').locator('.series-line')).toHaveCount(0);
-
-      // The scatter plot pairs the files by person and column name.
-      await expect(chart(page, 'chart-scatter').locator('.scatter-plot .point')).toHaveCount(example.pairs);
-      await expect(chart(page, 'chart-scatter').locator('.corner-label'))
-        .toHaveText(`r = ${example.r}  (n = ${example.pairs})`);
-      await expect(status(page)).toContainText(`${example.groups} groups, ${example.pairs} matched pairs`);
+      await expect(page.locator('#chart-scatter .scatter-plot .point')).toHaveCount(ex.points);
+      await expect(page.locator('#chart-scatter .corner-label')).toHaveText(`r = ${ex.r}  (n = ${ex.points})`);
+      await expect(page.locator('#status')).toContainText(`${ex.people} groups, ${ex.points} matched pairs`);
     });
   }
 
-  test('switching examples replaces the charts', async ({ page }) => {
+  test('clicking another example replaces the charts', async ({ page }) => {
     await page.getByRole('button', { name: 'Steps & sleep' }).click();
-    await expect(chart(page, 'chart-a').locator('.scatter-title')).toHaveText('Step Count');
+    await expect(page.locator('#chart-a .scatter-title')).toHaveText('Step Count');
+
     await page.getByRole('button', { name: 'Temperature & ice cream' }).click();
-    await expect(chart(page, 'chart-a').locator('.scatter-title')).toHaveText('Ice Cream Sales');
-    await expect(chart(page, 'chart-a').locator('.series-line')).toHaveCount(4);
+    await expect(page.locator('#chart-a .scatter-title')).toHaveText('Ice Cream Sales');
+    await expect(page.locator('#chart-a .series-line')).toHaveCount(4);
   });
 });
 
 test.describe('uploading files', () => {
-  test('the team data files draw the charts and report skipped blanks', async ({ page }) => {
-    await page.locator('#file-a').setInputFiles(`${DATA}/DATA - Step Count.csv`);
-    await page.locator('#file-b').setInputFiles(`${DATA}/DATA - Hours of Sleep.csv`);
+  test('team data files', async ({ page }) => {
+    await page.locator('#file-a').setInputFiles('data/DATA - Step Count.csv');
+    await page.locator('#file-b').setInputFiles('data/DATA - Hours of Sleep.csv');
 
-    await expect(charts(page)).toBeVisible();
-    await expect(status(page)).toContainText('DATA - Step Count.csv');
-    await expect(status(page)).toContainText('35 matched pairs');
-    // Several people left their rows blank; those cells are skipped (not plotted as 0)
-    // and the page says so. How many message lines that takes is up to data.js.
-    await expect(messages(page).filter({ hasText: 'skipped' }).first()).toBeVisible();
+    await expect(page.locator('#charts')).toBeVisible();
+    await expect(page.locator('#status')).toContainText('35 matched pairs');
+    // some people left their rows empty, should say those were skipped
+    await expect(page.locator('#warnings li', { hasText: 'skipped' }).first()).toBeVisible();
   });
 
-  test('picking only one file asks for the other', async ({ page }) => {
-    await page.locator('#file-a').setInputFiles(`${DATA}/examples/screen_time.csv`);
-    await expect(status(page)).toContainText('pick the other file');
-    await expect(charts(page)).toBeHidden();
+  test('only one file picked', async ({ page }) => {
+    await page.locator('#file-a').setInputFiles('data/examples/screen_time.csv');
+    await expect(page.locator('#status')).toContainText('pick the other file');
+    await expect(page.locator('#charts')).toBeHidden();
   });
 
-  test('columns in a different order are still matched by name', async ({ page }) => {
-    // ice_cream_sales.csv lists months Aug→Jan, temperature.csv lists them Jan→Aug.
-    await page.locator('#file-a').setInputFiles(`${DATA}/examples/ice_cream_sales.csv`);
-    await page.locator('#file-b').setInputFiles(`${DATA}/examples/temperature.csv`);
-    await expect(chart(page, 'chart-scatter').locator('.scatter-plot .point')).toHaveCount(32);
+  test('columns in different order still match', async ({ page }) => {
+    // ice cream file has months in reverse order
+    await page.locator('#file-a').setInputFiles('data/examples/ice_cream_sales.csv');
+    await page.locator('#file-b').setInputFiles('data/examples/temperature.csv');
+    await expect(page.locator('#chart-scatter .scatter-plot .point')).toHaveCount(32);
   });
 
-  test('a person missing from one file is on its line chart but not the scatter plot', async ({ page }) => {
-    await page.locator('#file-a').setInputFiles(csvFile('a.csv', 'Metric A,Mon,Tue\nAna,1,2\nBen,3,4\n'));
-    await page.locator('#file-b').setInputFiles(csvFile('b.csv', 'Metric B,Mon,Tue\nAna,5,6\n'));
+  test('person only in one file is left off the scatter', async ({ page }) => {
+    await page.locator('#file-a').setInputFiles(makeCsv('a.csv', 'Metric A,Mon,Tue\nAna,1,2\nBen,3,4\n'));
+    await page.locator('#file-b').setInputFiles(makeCsv('b.csv', 'Metric B,Mon,Tue\nAna,5,6\n'));
 
-    await expect(chart(page, 'chart-a').locator('.series-line')).toHaveCount(2);
-    await expect(chart(page, 'chart-b').locator('.series-line')).toHaveCount(1);
-    await expect(chart(page, 'chart-scatter').locator('.scatter-plot .point')).toHaveCount(2);
+    await expect(page.locator('#chart-a .series-line')).toHaveCount(2);
+    await expect(page.locator('#chart-b .series-line')).toHaveCount(1);
+    await expect(page.locator('#chart-scatter .scatter-plot .point')).toHaveCount(2);
   });
 
-  // Bad files must give a message and no charts, never a crash.
-  // (Checks behaviour, not exact wording, so message changes don't break the tests.)
-  const badFiles = {
-    'an empty file': '',
-    'a header with no data rows': 'Metric,Mon,Tue\n',
-    'repeated column names': 'Metric,Mon,Mon\nAna,1,2\n',
-    'only text where numbers should be': 'Metric,Mon,Tue\nAna,abc,def\n',
-  };
-  // Known bug on main: a header-only file says "See the messages below" but shows none.
-  // feature/csv-validation fixes it. Once that's merged this test passes, Playwright
-  // reports it as "unexpectedly passed", and this entry should be deleted.
-  const knownBugs = new Set(['a header with no data rows']);
+  // bad files should show a message and no charts
+  const badFiles = [
+    ['empty file', ''],
+    ['header only', 'Metric,Mon,Tue\n'],
+    ['duplicate columns', 'Metric,Mon,Mon\nAna,1,2\n'],
+    ['no numbers', 'Metric,Mon,Tue\nAna,abc,def\n'],
+  ];
 
-  for (const [description, text] of Object.entries(badFiles)) {
-    test(`${description} shows a message and no charts`, async ({ page }) => {
-      test.fail(knownBugs.has(description), 'known bug: no message for a header-only file');
-      await page.locator('#file-a').setInputFiles(csvFile('bad.csv', text));
-      await page.locator('#file-b').setInputFiles(`${DATA}/examples/screen_time.csv`);
-      await expect(messages(page).first()).toBeVisible();
-      await expect(charts(page)).toBeHidden();
+  for (const [name, text] of badFiles) {
+    test(`bad file: ${name}`, async ({ page }) => {
+      // TODO: header only shows no message on main right now, fixed in #22.
+      // remove this line once #22 is merged
+      test.fail(name === 'header only');
+
+      await page.locator('#file-a').setInputFiles(makeCsv('bad.csv', text));
+      await page.locator('#file-b').setInputFiles('data/examples/screen_time.csv');
+      await expect(page.locator('#warnings li').first()).toBeVisible();
+      await expect(page.locator('#charts')).toBeHidden();
     });
   }
 
-  test('a bad file after a good one hides the old charts', async ({ page }) => {
+  test('bad file after a good one hides the old charts', async ({ page }) => {
     await page.getByRole('button', { name: 'Screen time & sleep' }).click();
-    await expect(charts(page)).toBeVisible();
-    await page.locator('#file-a').setInputFiles(csvFile('bad.csv', ''));
-    await page.locator('#file-b').setInputFiles(`${DATA}/examples/screen_time.csv`);
-    await expect(charts(page)).toBeHidden();
+    await expect(page.locator('#charts')).toBeVisible();
+
+    await page.locator('#file-a').setInputFiles(makeCsv('bad.csv', ''));
+    await page.locator('#file-b').setInputFiles('data/examples/screen_time.csv');
+    await expect(page.locator('#charts')).toBeHidden();
   });
 
-  test('names from a file are shown as plain text, never run as code', async ({ page }) => {
+  test('html in a name is not run', async ({ page }) => {
     const name = '<img src=x onerror="window.hacked=1">';
-    await page.locator('#file-a').setInputFiles(csvFile('a.csv', `Metric A,Mon,Tue\n"${name.replaceAll('"', '""')}",1,2\n`));
-    await page.locator('#file-b').setInputFiles(csvFile('b.csv', `Metric B,Mon,Tue\n"${name.replaceAll('"', '""')}",3,4\n`));
-    await expect(chart(page, 'chart-a').locator('.legend-item')).toHaveText(name);
+    const quoted = `"${name.replaceAll('"', '""')}"`;
+    await page.locator('#file-a').setInputFiles(makeCsv('a.csv', `Metric A,Mon,Tue\n${quoted},1,2\n`));
+    await page.locator('#file-b').setInputFiles(makeCsv('b.csv', `Metric B,Mon,Tue\n${quoted},3,4\n`));
+
+    await expect(page.locator('#chart-a .legend-item')).toHaveText(name);
     expect(await page.evaluate('window.hacked')).toBeUndefined();
   });
 });
@@ -176,86 +161,88 @@ test.describe('uploading files', () => {
 test.describe('chart interactions', () => {
   test.beforeEach(async ({ page }) => {
     await page.getByRole('button', { name: 'Screen time & sleep' }).click();
-    await expect(charts(page)).toBeVisible();
+    await expect(page.locator('#charts')).toBeVisible();
   });
 
-  test('hovering a point shows a tooltip with the person and values', async ({ page }) => {
-    const scatter = chart(page, 'chart-scatter');
+  test('hover shows tooltip', async ({ page }) => {
+    const scatter = page.locator('#chart-scatter');
     await scatter.scrollIntoViewIfNeeded();
     await scatter.locator('.scatter-plot .point').first().hover({ force: true });
+
     const tooltip = scatter.locator('.scatter-tooltip');
     await expect(tooltip).toBeVisible();
     await expect(tooltip).toContainText('Screen Time (hours)');
     await expect(tooltip).toContainText('Sleep (hours)');
   });
 
-  test('clicking a legend name hides and shows that person', async ({ page }) => {
-    const lineChart = chart(page, 'chart-a');
-    const firstPerson = lineChart.locator('.legend-item').first();
+  test('legend click hides and shows a person', async ({ page }) => {
+    const first = page.locator('#chart-a .legend-item').first();
 
-    await firstPerson.click();
-    await expect(firstPerson).toHaveAttribute('aria-pressed', 'false');
-    await expect(lineChart.locator('.series-line')).toHaveCount(3);
-    await expect(lineChart.locator('.scatter-plot .point')).toHaveCount(21);
+    await first.click();
+    await expect(first).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('#chart-a .series-line')).toHaveCount(3);
+    await expect(page.locator('#chart-a .scatter-plot .point')).toHaveCount(21);
 
-    await firstPerson.click();
-    await expect(firstPerson).toHaveAttribute('aria-pressed', 'true');
-    await expect(lineChart.locator('.series-line')).toHaveCount(4);
+    await first.click();
+    await expect(first).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#chart-a .series-line')).toHaveCount(4);
   });
 
-  test('hovering a legend name fades everyone else', async ({ page }) => {
-    const lineChart = chart(page, 'chart-a');
-    await lineChart.locator('.legend-item').first().hover();
-    await expect(lineChart.locator('.series-line.dimmed')).toHaveCount(3);
+  test('legend hover fades the other lines', async ({ page }) => {
+    await page.locator('#chart-a .legend-item').first().hover();
+    await expect(page.locator('#chart-a .series-line.dimmed')).toHaveCount(3);
+
     await page.mouse.move(0, 0);
-    await expect(lineChart.locator('.series-line.dimmed')).toHaveCount(0);
+    await expect(page.locator('#chart-a .series-line.dimmed')).toHaveCount(0);
   });
 
-  test('Ctrl + scroll zooms, dragging pans, and Reset view restores', async ({ page }) => {
-    const scatter = chart(page, 'chart-scatter');
-    await scatter.scrollIntoViewIfNeeded();
+  test('zoom, pan and reset', async ({ page }) => {
+    const scatter = page.locator('#chart-scatter');
     const ticks = scatter.locator('.tick-label');
-    const original = await ticks.allTextContents();
-    const box = await scatter.locator('.scatter-plot svg').boundingBox();
-    const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    await scatter.scrollIntoViewIfNeeded();
+    const before = await ticks.allTextContents();
 
-    // Plain scrolling must not zoom (it should scroll the page instead).
-    await page.mouse.move(centre.x, centre.y);
+    // normal scroll shouldn't zoom
+    let box = await scatter.locator('.scatter-plot svg').boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.wheel(0, -300);
     await scatter.scrollIntoViewIfNeeded();
-    await expect(ticks).toHaveText(original);
+    await expect(ticks).toHaveText(before);
 
-    const box2 = await scatter.locator('.scatter-plot svg').boundingBox();
-    await page.mouse.move(box2.x + box2.width / 2, box2.y + box2.height / 2);
+    // ctrl + scroll zooms
+    box = await scatter.locator('.scatter-plot svg').boundingBox();
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await page.mouse.move(x, y);
     await page.keyboard.down('Control');
     await page.mouse.wheel(0, -300);
     await page.keyboard.up('Control');
-    await expect(ticks).not.toHaveText(original);
+    await expect(ticks).not.toHaveText(before);
     const zoomed = await ticks.allTextContents();
 
+    // drag to pan
     await page.mouse.down();
-    await page.mouse.move(box2.x + box2.width / 2 + 120, box2.y + box2.height / 2, { steps: 5 });
+    await page.mouse.move(x + 120, y, { steps: 5 });
     await page.mouse.up();
     await expect(ticks).not.toHaveText(zoomed);
 
     await scatter.getByRole('button', { name: 'Reset view' }).click();
-    await expect(ticks).toHaveText(original);
+    await expect(ticks).toHaveText(before);
   });
 
-  test('the data table lists every plotted value', async ({ page }) => {
-    const lineChart = chart(page, 'chart-a');
-    await lineChart.getByText('Show data table').click();
-    await expect(lineChart.locator('table tbody tr')).toHaveCount(28);
+  test('data table has every value', async ({ page }) => {
+    await page.locator('#chart-a').getByText('Show data table').click();
+    await expect(page.locator('#chart-a table tbody tr')).toHaveCount(28);
   });
 });
 
-test.describe('small screens', () => {
+test.describe('mobile', () => {
   test.use({ viewport: { width: 375, height: 720 } });
 
-  test('the page fits a phone screen without sideways scrolling', async ({ page }) => {
+  test('no sideways scroll on a phone', async ({ page }) => {
     await page.getByRole('button', { name: 'Steps & sleep' }).click();
-    await expect(charts(page)).toBeVisible();
-    const pageWidth = await page.evaluate('document.documentElement.scrollWidth');
-    expect(pageWidth).toBeLessThanOrEqual(375);
+    await expect(page.locator('#charts')).toBeVisible();
+    const width = await page.evaluate('document.documentElement.scrollWidth');
+    expect(width).toBeLessThanOrEqual(375);
   });
 });

@@ -219,7 +219,7 @@ The tests also fail if the page hits a JavaScript error or a missing file (404).
 **Known bug:** a CSV with a header but no data rows says "See the messages below" but
 shows no message. That test is marked as expected to fail until `feature/csv-validation`
 is merged. After that, Playwright reports it as "expected to fail, but passed"; delete
-its entry from `knownBugs` in the test file.
+the `test.fail(...)` line in the test file (marked TODO).
 
 **On GitHub:** the team's CI workflow (`.github/workflows/ci.yml`, issue #14) runs
 `npm run test:e2e` on every pull request. If the tests fail, the report is attached to the run.
