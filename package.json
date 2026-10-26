@@ -2,6 +2,7 @@
   "name": "warmup-site",
   "private": true,
   "scripts": {
+    "test": "node --test",
     "parse:data": "node src/data.js",
     "start": "node server.js"
   },
