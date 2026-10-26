@@ -221,8 +221,8 @@ shows no message. That test is marked as expected to fail until `feature/csv-val
 is merged. After that, Playwright reports it as "expected to fail, but passed"; delete
 its entry from `knownBugs` in the test file.
 
-**On GitHub:** `.github/workflows/e2e.yml` runs the tests on every pull request and on
-pushes to `main` and `development`. If they fail, the report is attached to the run.
+**On GitHub:** the team's CI workflow (`.github/workflows/ci.yml`, issue #14) runs
+`npm run test:e2e` on every pull request. If the tests fail, the report is attached to the run.
 
 ---
 
