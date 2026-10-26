@@ -1,19 +1,23 @@
 // @ts-check
 /**
- * Simple statistics helpers used by the chart (trend line + correlation).
- * Placeholder version — the stats owner can swap in their own as long as the
- * signatures stay the same.
+ * Statistical helpers for the chart's least-squares trend line and Pearson correlation.
+ * Inputs are numeric coordinate pairs; undefined fits and correlations return NaN.
+ * @module stats
  */
 
 /**
- * @typedef {{x: number, y: number}} XY
+ * One numeric coordinate pair used in statistical calculations.
+ * @typedef {Object} XY
+ * @property {number} x - X coordinate of the observation.
+ * @property {number} y - Y coordinate of the observation.
  */
 
 /**
- * Ordinary least-squares fit y = slope * x + intercept.
- * Returns NaN for both when the fit is undefined (fewer than 2 points, or all x equal).
- * @param {XY[]} points
- * @returns {{slope: number, intercept: number}}
+ * Calculate the least-squares line y = slope * x + intercept.
+ * Returns NaN for both values when there are fewer than two points
+ * or all points have the same X coordinate.
+ * @param {XY[]} points - Numeric observations used to fit the line.
+ * @returns {{slope: number, intercept: number}} The fitted line's slope and Y-axis intercept.
  */
 export function linearFit(points) {
   const n = points.length;
@@ -35,10 +39,11 @@ export function linearFit(points) {
 }
 
 /**
- * Pearson correlation coefficient r in [-1, 1].
- * Returns NaN when undefined (fewer than 2 points, or zero variance in x or y).
- * @param {XY[]} points
- * @returns {number}
+ * Calculate the Pearson correlation coefficient between X and Y values.
+ * Returns NaN when there are fewer than two points, all X values are equal,
+ * or all Y values are equal.
+ * @param {XY[]} points - Numeric observations used to calculate the correlation.
+ * @returns {number} Correlation coefficient from -1 to 1, or NaN when undefined.
  */
 export function pearson(points) {
   const n = points.length;

@@ -23,12 +23,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate documentation
+        run: npm run docs
+
       # Publish only the site files (not server.js, README, .idea, etc.)
       - name: Stage site files
         run: |
           mkdir _site
           cp index.html styles.css _site/
-          cp -r src data _site/
+          cp -r src data Docs _site/
 
       - uses: actions/configure-pages@v5
 

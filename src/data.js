@@ -1,3 +1,7 @@
+/**
+ * CSV parsing, validation, and conversion to plot data.
+ * @module data
+ */
 import Papa from 'papaparse';
 
 const numericPattern = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
@@ -5,9 +9,10 @@ const numericPattern = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 /**
  * Parse CSV with Papa Parse and validate the project's metric/category layout.
  * Record numbers include the header; quoted multiline fields remain one record.
- * Invalid cells become empty strings, never zero. Errors block the whole file.
- * @param {unknown} text
- * @returns {{columns: string[], rows: string[][], errors: string[], warnings: string[]}}
+ * Invalid numeric cells become empty strings, never zero.
+ * Callers must check errors before using the returned rows.
+ * @param {unknown} text - CSV input; non-string or blank input produces a validation error.
+ * @returns {{columns: string[], rows: string[][], errors: string[], warnings: string[]}} Trimmed column names and rows, blocking errors, and warnings about skipped rows or invalid cells.
  */
 export function parseCsv(text) {
   const result = { columns: [], rows: [], errors: [], warnings: [] };
@@ -68,6 +73,24 @@ export function parseCsv(text) {
 }
 
 /**
+ * One group's observations.
+ * @typedef {Object} PlotSeries
+ * @property {string} group - Group name.
+ * @property {number[][]} points - Numeric pairs, each ordered as [x, y].
+ */
+
+/**
+ * Parsed CSV data prepared for plotting.
+ * @typedef {Object} PlotData
+ * @property {PlotSeries[]} series - Groups and their observations.
+ * @property {string|null} valueHeader - Top-left CSV header, or null if unavailable.
+ * @property {('number'|'category')} xType - Type of the X axis.
+ * @property {Object<number, string>} [xTickLabels] - Category labels by X position.
+ * @property {string[]} errors - Blocking validation errors.
+ * @property {string[]} warnings - Messages about skipped data or invalid options.
+ */
+
+/**
  * The first header describes the value semantics (e.g. steps), the first column holds
  * groups (e.g. person), and remaining headers are X values (e.g. weekday).
  * Y is numeric; X type is selected by the caller. Group labels preserve case and are trimmed.
@@ -76,12 +99,11 @@ export function parseCsv(text) {
  * valueHeader preserves the top-left header. Categorical X text is preserved
  * in xTickLabels. Duplicate group rows are rejected.
  * Returns errors and warnings rather than throwing for invalid input.
- * @param {string} text
- * @param {{xColumns?: string[],
- *   xType?: 'number' | 'category'}} [options]
- * @returns {{series: {group: string, points: [number, number][]}[],
- *   valueHeader: string | null, xType: 'number' | 'category',
- *   xTickLabels?: Record<number, string>, errors: string[], warnings: string[]}}
+ * @param {string} text - CSV text to parse.
+ * @param {Object} [options] - Plot configuration.
+ * @param {string[]} [options.xColumns] - Selected X headers; defaults to all headers after the first.
+ * @param {('number'|'category')} [options.xType='category'] - Type of the X axis.
+ * @returns {PlotData} Parsed series, labels, errors, and warnings.
  */
 export function buildPlotData(text, options) {
   const { columns, rows, errors, warnings } = parseCsv(text);
@@ -127,7 +149,13 @@ export function buildPlotData(text, options) {
   return result;
 }
 
-// File access runs only when this module is Node's entry point.
+/**
+ * Parse the bundled step-count CSV and write the result to data/result.json.
+ * Runs only when this module is Node's entry point.
+ * Logs observation counts and validation messages; validation errors set exit code 1.
+ * @returns {Promise<void>} Resolves after writing the JSON output and logging the result.
+ * @throws {Error} Rejects if reading the CSV or writing the JSON file fails.
+ */
 async function main() {
   const { readFile, writeFile } = await import('node:fs/promises');
   const { fileURLToPath } = await import('node:url');

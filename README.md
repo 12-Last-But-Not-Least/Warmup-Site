@@ -12,6 +12,12 @@ in the same layout: study hours and quiz scores, temperature and sales, and so o
 
 Everything runs in the browser. The files you upload are never sent anywhere.
 
+## Code documentation
+
+Function and data type documentation is generated from source comments using JSDoc.
+
+[View the code documentation](https://12-last-but-not-least.github.io/Warmup-Site/Docs/)
+
 ---
 
 ## How to run it
