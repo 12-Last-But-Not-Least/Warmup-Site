@@ -31,6 +31,45 @@ Open http://localhost:3000. (`npx serve` works too.)
 
 ---
 
+## Linting
+
+Install dependencies with `npm ci` (Node.js 24 is used in CI), then run:
+
+```sh
+npm run lint
+npm run lint:fix
+```
+
+`lint` checks all JavaScript with ESLint's recommended rules and fails on any
+errors or warnings. `lint:fix` applies available automatic fixes; any remaining
+issues must be fixed manually. Browser globals apply to `src/`, while `server.js`
+uses Node.js and CommonJS. `src/data.js` also allows Node.js globals for its CLI.
+Generated `_site/` output and `node_modules/` are ignored.
+
+The **Lint** GitHub Actions workflow runs on every pull request and pushes to
+`main`. Run the same lint command before submitting changes. To require a passing
+check before merging, a repository administrator can make `lint` a required status
+check in the branch protection settings for `main`.
+
+### Fix a branch from GitHub
+
+After this workflow is merged into `main`, open **Actions → Fix lint → Run
+workflow**, choose the branch in **Use workflow from**, and click **Run workflow**.
+The selected branch must contain the workflow and lint configuration.
+
+The action runs `npm run lint:fix` and commits any fixes to tracked JavaScript
+files back to that same branch. Open PRs from the branch update automatically.
+If nothing changes, no commit is created. Fixes are committed even if other lint
+errors remain; the final check fails until those remaining issues are fixed manually.
+
+The action uses GitHub's built-in token, so no extra secret is needed. Its bot
+push does not trigger another automatic CI run; the action runs lint again itself.
+If a PR requires a separate check on the new commit, run **Lint** manually on that
+branch. Branch protection still applies, and a concurrent branch update can reject
+the push; rerun the action on the updated branch in that case.
+
+---
+
 ## How to use it
 
 1. Pick a file for **First CSV** and another for **Second CSV**.

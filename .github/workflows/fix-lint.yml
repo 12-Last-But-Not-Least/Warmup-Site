@@ -1,0 +1,56 @@
+name: Fix lint
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-lint-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a branch
+        run: |
+          if [ "$GITHUB_REF_TYPE" != "branch" ]; then
+            echo "::error::Select a branch, not a tag, to fix lint."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Apply automatic fixes
+        id: fix
+        continue-on-error: true
+        run: npm run lint:fix
+      - name: Commit and push fixes
+        run: |
+          git ls-files -z -- '*.js' '*.mjs' '*.cjs' | xargs -0 -r git add -u --
+          if git diff --cached --quiet; then
+            echo "No automatic fixes to commit." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "chore: apply automatic lint fixes"
+          git push origin "HEAD:$GITHUB_REF"
+          echo "Committed automatic fixes: $(git rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
+      # Token-authenticated pushes do not trigger another automatic lint run.
+      - name: Check for remaining issues
+        env:
+          FIX_OUTCOME: ${{ steps.fix.outcome }}
+        run: |
+          npm run lint
+          if [ "$FIX_OUTCOME" = "failure" ]; then
+            echo "::error::The fix command failed. Review its log for details."
+            exit 1
+          fi
