@@ -2,71 +2,88 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { buildPlotData, parseCsv } from '../src/data.js';
 
-describe('parseCsv', () => {
-  it('rejects non-string input', () => {
-    for (const input of [undefined, null, 42, {}]) {
-      expect(parseCsv(input)).toEqual({ columns: [], rows: [], warnings: ['CSV input must be text'] });
-    }
+describe('parseCsv: errors', () => {
+  it.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['a number', 42],
+    ['an empty string', ''],
+    ['whitespace', '  \n'],
+  ])('rejects %s as input', (_, input) => {
+    expect(parseCsv(input)).toEqual({
+      columns: [], rows: [], errors: ['CSV input must be nonempty text'], warnings: [],
+    });
   });
 
-  it('parses a simple CSV and trims headers only', () => {
-    const { columns, rows, warnings } = parseCsv(' Name , A\nx, 1 \n');
-    expect(columns).toEqual(['Name', 'A']);
-    expect(rows).toEqual([['x', ' 1 ']]);
-    expect(warnings).toEqual([]);
+  it.each([
+    ['header only', 'Metric,Monday'],
+    ['a single column', 'Metric\nJay'],
+    ['a blank header', 'Metric,\nJay,2'],
+    ['a whitespace-only header', 'Metric, ,Tue\nJay,1,2'],
+    ['duplicate headers', 'Metric,Monday, Monday \nJay,1,2'],
+    ['duplicate people', 'Metric,Monday\nJay,1\n Jay ,2'],
+    ['malformed quoting', 'Metric,Monday\nJay,"2'],
+    ['no numeric observations', 'Metric,Monday\nJay,abc'],
+  ])('rejects %s', (_, input) => {
+    expect(parseCsv(input).errors.length).toBeGreaterThan(0);
+    expect(buildPlotData(input).series).toEqual([]);
   });
 
-  it('warns about an empty file', () => {
-    const { columns, rows, warnings } = parseCsv('');
-    expect(columns).toEqual([]);
-    expect(rows).toEqual([]);
-    expect(warnings).toContain('CSV must have a header with nonempty, unique column names');
+  it('treats header case as significant', () => {
+    expect(parseCsv('M,a,A\nJay,1,2').errors).toEqual([]);
   });
 
-  it('accepts a header-only file', () => {
-    expect(parseCsv('a,b')).toEqual({ columns: ['a', 'b'], rows: [], warnings: [] });
+  it('names the record for a malformed quote', () => {
+    expect(parseCsv('Metric,Monday\nJay,"2').errors[0]).toMatch(/^CSV record 2:/);
   });
 
-  it('rejects blank header names', () => {
-    expect(parseCsv('a,,c\n1,2,3').columns).toEqual([]);
-    expect(parseCsv('a, ,c\n1,2,3').warnings).toHaveLength(1);
-  });
-
-  it('rejects duplicate headers but treats case as significant', () => {
-    expect(parseCsv('a,a\n1,2').columns).toEqual([]);
-    expect(parseCsv('a,A\n1,2').columns).toEqual(['a', 'A']);
-  });
-
-  it('handles quoted fields with commas, quotes and newlines', () => {
-    const { rows } = parseCsv('g,v\n"Smith, J","say ""hi"""\n"two\nlines",3\n');
-    expect(rows).toEqual([['Smith, J', 'say "hi"'], ['two\nlines', '3']]);
-  });
-
-  it('handles CRLF line endings', () => {
-    expect(parseCsv('a,b\r\n1,2\r\n3,4\r\n').rows).toEqual([['1', '2'], ['3', '4']]);
-  });
-
-  it('skips blank rows silently', () => {
-    const { rows, warnings } = parseCsv('a,b\n1,2\n\n , \n3,4');
-    expect(rows).toEqual([['1', '2'], ['3', '4']]);
-    expect(warnings).toEqual([]);
-  });
-
-  it('skips rows with the wrong number of fields, naming the record', () => {
-    const { rows, warnings } = parseCsv('a,b\n1,2\n3\n4,5,6\n7,8');
-    expect(rows).toEqual([['1', '2'], ['7', '8']]);
-    expect(warnings.filter(w => w.endsWith('wrong number of fields')))
-      .toEqual(['CSV record 3 skipped: wrong number of fields', 'CSV record 4 skipped: wrong number of fields']);
-  });
-
-  it('reports malformed quoting without losing the header', () => {
-    const { columns, warnings } = parseCsv('a,b\n"unterminated,2\n');
-    expect(columns).toEqual(['a', 'b']);
-    expect(warnings.some(w => w.startsWith('CSV record'))).toBe(true);
+  it('names the record for a duplicate person', () => {
+    expect(parseCsv('Metric,Monday\nJay,1\n Jay ,2').errors)
+      .toEqual(['CSV record 3, column 1: duplicate group "Jay"']);
   });
 
   it('only splits on commas', () => {
-    expect(parseCsv('a;b\n1;2').columns).toEqual(['a;b']);
+    expect(parseCsv('a;b\n1;2').errors.length).toBeGreaterThan(0); // one column
+  });
+});
+
+describe('parseCsv: rows', () => {
+  it('parses a simple CSV, trimming headers, groups and cells', () => {
+    expect(parseCsv(' Metric , A \n Jay , 1 \n')).toEqual({
+      columns: ['Metric', 'A'], rows: [['Jay', '1']], errors: [], warnings: [],
+    });
+  });
+
+  it('handles a BOM, CRLF, quoted commas, escaped quotes and multiline fields', () => {
+    const result = parseCsv('﻿Metric,"Day, 1"\r\n"Jay ""J""\nSmith",2\r\n');
+    expect(result.errors).toEqual([]);
+    expect(result.columns).toEqual(['Metric', 'Day, 1']);
+    expect(result.rows).toEqual([['Jay "J"\nSmith', '2']]);
+  });
+
+  it('ignores completely blank rows without warning', () => {
+    const { rows, warnings } = parseCsv('M,A\nJay,1\n\n , \nSam,2');
+    expect(rows).toEqual([['Jay', '1'], ['Sam', '2']]);
+    expect(warnings).toEqual([]);
+  });
+
+  it('skips wrong-width and blank-name rows, keeping original record numbers', () => {
+    const result = parseCsv('Metric,A\n\nJay,1,2\n,4\nSam,3\n');
+    expect(result.errors).toEqual([]);
+    expect(result.rows).toEqual([['Sam', '3']]);
+    expect(result.warnings).toEqual([
+      'CSV record 3 skipped: expected 2 fields, found 3',
+      'CSV record 4, column 1 skipped: group name is blank',
+    ]);
+  });
+
+  it('blanks invalid cells without converting them to zero, and warns for each', () => {
+    const { rows, warnings, errors } = parseCsv('M,A,B,C,D,E,F,G,H,I\nJay,0,,abc,Infinity,NaN,0x10,2.5,-3,1e2');
+    expect(errors).toEqual([]);
+    expect(rows).toEqual([['Jay', '0', '', '', '', '', '', '2.5', '-3', '1e2']]);
+    expect(warnings).toHaveLength(5);
+    expect(warnings[0]).toBe('CSV record 2, column 3 ("B") skipped: value is blank');
+    expect(warnings[1]).toBe('CSV record 2, column 4 ("C") skipped: value is not a finite number');
   });
 });
 
@@ -82,14 +99,15 @@ describe('buildPlotData', () => {
       { group: 'Ana', points: [[0, 1], [1, 2], [2, 3]] },
       { group: 'Ben', points: [[0, 4], [1, 5], [2, 6]] },
     ]);
+    expect(data.errors).toEqual([]);
     expect(data.warnings).toEqual([]);
   });
 
-  it('returns an empty result with the CSV warnings for unusable input', () => {
+  it('returns an empty result carrying the errors for unusable input', () => {
     const data = buildPlotData('');
     expect(data.series).toEqual([]);
     expect(data.valueHeader).toBeNull();
-    expect(data.warnings.length).toBeGreaterThan(0);
+    expect(data.errors).toEqual(['CSV input must be nonempty text']);
   });
 
   it('treats null options like no options', () => {
@@ -103,7 +121,7 @@ describe('buildPlotData', () => {
     expect(data.series[0].points).toEqual([[0, 3], [1, 1]]);
   });
 
-  it('rejects an unknown xType but still reports no series', () => {
+  it('warns about an unknown xType and returns no series', () => {
     const data = buildPlotData(weekdays, { xType: 'date' });
     expect(data.series).toEqual([]);
     expect(data.warnings).toContain('X type must be number or category');
@@ -115,7 +133,7 @@ describe('buildPlotData', () => {
     ['unknown header', ['Nope']],
     ['first column', ['Steps']],
     ['duplicates', ['Mon', 'Mon']],
-  ])('rejects invalid xColumns: %s', (_, xColumns) => {
+  ])('warns about invalid xColumns: %s', (_, xColumns) => {
     const data = buildPlotData(weekdays, { xColumns });
     expect(data.series).toEqual([]);
     expect(data.warnings).toContain('Select unique existing X headers after the first column');
@@ -145,6 +163,7 @@ describe('buildPlotData', () => {
   });
 
   describe('Y values', () => {
+    // A lone bad value leaves no observations, so the file is rejected and series is empty.
     const y = value => buildPlotData(`V,X\nAna,${value}`).series[0]?.points[0]?.[1];
 
     it.each([['5', 5], [' 5 ', 5], ['.5', 0.5], ['5.', 5], ['+5', 5], ['-2.5', -2.5], ['1e3', 1000], ['0', 0]])(
@@ -154,22 +173,15 @@ describe('buildPlotData', () => {
       'rejects %j', raw => expect(y(raw)).toBeUndefined());
   });
 
-  it('counts skipped observations by reason with singular and plural wording', () => {
-    const csv = 'V,A,B\nAna,,x\nBen,1,2\n,3,4\n,5,6\nCy,7,\n';
-    const { warnings, series } = buildPlotData(csv);
-    expect(series.map(s => s.group)).toEqual(['Ben', 'Cy']);
-    expect(warnings.sort()).toEqual([
-      '1 observation skipped: Y was not a finite number',
-      '2 observations skipped: Y was blank',
-      '4 observations skipped: group was blank',
-    ]);
+  it('leaves out skipped cells but keeps the rest of the row', () => {
+    const { series, warnings } = buildPlotData('V,A,B,C\nAna,1,,x');
+    expect(series).toEqual([{ group: 'Ana', points: [[0, 1]] }]);
+    expect(warnings).toHaveLength(2);
   });
 
-  it('trims group names, preserves case and merges repeated groups', () => {
-    const { series } = buildPlotData('V,A,B\n Ana ,1,2\nAna,3,4\nbob,5,6\nBob,7,8');
-    expect(series.map(s => s.group)).toHaveLength(3);
-    expect(series.find(s => s.group === 'Ana').points).toEqual([[0, 1], [0, 3], [1, 2], [1, 4]]);
-    expect(series.find(s => s.group === 'bob').points).toEqual([[0, 5], [1, 6]]);
+  it('keeps case-sensitive group names distinct', () => {
+    const { series } = buildPlotData('V,A,B\n Ana ,1,2\nana,3,4');
+    expect(series.map(s => s.group).sort()).toEqual(['Ana', 'ana']);
   });
 
   it('sorts series by group name', () => {
@@ -178,25 +190,24 @@ describe('buildPlotData', () => {
   });
 });
 
-describe('example datasets', () => {
-  const dir = new URL('../data/examples/', import.meta.url);
-  const files = readdirSync(dir).filter(name => name.endsWith('.csv'));
-  const load = url => buildPlotData(readFileSync(url, 'utf8'));
+describe('bundled datasets', () => {
+  const examples = new URL('../data/examples/', import.meta.url);
+  const paths = [
+    ...readdirSync(examples).filter(name => name.endsWith('.csv')).map(name => new URL(name, examples)),
+    new URL('../data/DATA - Step Count.csv', import.meta.url),
+    new URL('../data/DATA - Hours of Sleep.csv', import.meta.url),
+  ];
 
-  it('has example files', () => {
-    expect(files.length).toBeGreaterThan(0);
+  it('includes the example files', () => {
+    expect(paths.length).toBeGreaterThan(2);
   });
 
-  it.each(files)('%s yields series and only blank-cell warnings', name => {
-    const data = load(new URL(name, dir));
-    expect(data.series.length).toBeGreaterThan(0);
-    expect(data.valueHeader).toBeTruthy();
-    for (const warning of data.warnings) expect(warning).toMatch(/observations? skipped: Y was blank/);
-  });
-
-  it.each(['DATA - Step Count.csv', 'DATA - Hours of Sleep.csv'])('%s has data with blank cells reported', name => {
-    const data = load(new URL(`../data/${name}`, import.meta.url));
-    expect(data.series.length).toBeGreaterThan(0);
-    expect(data.warnings).toEqual(['42 observations skipped: Y was blank']);
-  });
+  it.each(paths.map(url => [decodeURIComponent(url.pathname.split('/').pop()), url]))(
+    '%s is valid, with only blank-cell warnings', (_, url) => {
+      const data = buildPlotData(readFileSync(url, 'utf8'));
+      expect(data.errors).toEqual([]);
+      expect(data.series.length).toBeGreaterThan(0);
+      expect(data.valueHeader).toBeTruthy();
+      for (const warning of data.warnings) expect(warning).toMatch(/value is blank$/);
+    });
 });

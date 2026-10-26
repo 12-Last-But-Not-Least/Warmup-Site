@@ -50,6 +50,19 @@ describe('main.js', () => {
     expect($('charts').hidden).toBe(true);
   });
 
+  it('hides earlier charts and messages when a file is cleared', async () => {
+    await loadMain();
+    pickFile($('file-a'), 'a.csv', csvA);
+    pickFile($('file-b'), 'b.csv', csvB);
+    await settle();
+    expect($('charts').hidden).toBe(false);
+    Object.defineProperty($('file-b'), 'files', { value: [], configurable: true });
+    $('file-b').dispatchEvent(new Event('change'));
+    await settle();
+    expect($('charts').hidden).toBe(true);
+    expect($('warnings').hidden).toBe(true);
+  });
+
   it('draws three charts once both files are chosen', async () => {
     await loadMain();
     pickFile($('file-a'), 'a.csv', csvA);
@@ -65,15 +78,34 @@ describe('main.js', () => {
     expect($('warnings').hidden).toBe(true);
   });
 
-  it('prefixes warnings with the file name and hides charts when a file has no data', async () => {
+  it('prefixes errors with the file name and hides charts when a file fails validation', async () => {
     await loadMain();
     pickFile($('file-a'), 'a.csv', csvA);
     pickFile($('file-b'), 'bad.csv', '');
     await settle();
     expect($('charts').hidden).toBe(true);
-    expect($('status').textContent).toBe('One of the files has no usable data. See the messages below.');
+    expect($('status').textContent).toBe(
+      'One of the files failed validation or has no usable data. See the messages below.');
     expect($('warnings').hidden).toBe(false);
-    expect($('warnings').textContent).toContain('bad.csv: CSV must have a header');
+    expect($('warnings').textContent).toBe('bad.csv: Error: CSV input must be nonempty text');
+  });
+
+  it('prefixes warnings with the file name but still draws the charts', async () => {
+    await loadMain();
+    pickFile($('file-a'), 'a.csv', 'Steps,Mon,Tue\nAna,10,\nBen,30,40');
+    pickFile($('file-b'), 'b.csv', csvB);
+    await settle();
+    expect($('charts').hidden).toBe(false);
+    expect($('warnings').textContent).toBe('a.csv: CSV record 2, column 3 ("Tue") skipped: value is blank');
+  });
+
+  it('explains an empty scatter plot when the files share no person or category', async () => {
+    await loadMain();
+    pickFile($('file-a'), 'a.csv', csvA);
+    pickFile($('file-b'), 'b.csv', 'Sleep,Wed\nCy,5');
+    await settle();
+    expect($('charts').hidden).toBe(false);
+    expect($('warnings').textContent).toContain('No matching numeric observations');
   });
 
   it('shows warnings as text, not markup', async () => {
