@@ -66,7 +66,7 @@ const SLOT_SHAPES = ['circle', 'square', 'triangle', 'diamond', 'triangle', 'cir
 let instanceCounter = 0; // for unique clipPath ids when several charts share a page
 
 // ---------------------------------------------------------------------------
-// Scales and ticks (exported so they can be unit-tested)
+// Scales, ticks and other pure helpers (exported so they can be unit-tested)
 // ---------------------------------------------------------------------------
 
 /**
@@ -120,13 +120,13 @@ export function niceTicks(min, max, count) {
  * @param {number} v
  * @param {number} step
  */
-function formatTick(v, step) {
+export function formatTick(v, step) {
   const decimals = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
   return v.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
 /** @param {number} v */
-function formatValue(v) {
+export function formatValue(v) {
   return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
@@ -135,7 +135,7 @@ function formatValue(v) {
  * @param {number[]} values
  * @returns {[number, number]}
  */
-function paddedExtent(values, pad = 0.06) {
+export function paddedExtent(values, pad = 0.06) {
   let min = Math.min(...values);
   let max = Math.max(...values);
   if (min === max) { min -= 1; max += 1; }
@@ -148,7 +148,7 @@ function paddedExtent(values, pad = 0.06) {
  * stays put across re-renders instead of shimmering while panning.
  * @param {number} i
  */
-function stableNoise(i) {
+export function stableNoise(i) {
   const s = Math.sin((i + 1) * 12.9898) * 43758.5453;
   return (s - Math.floor(s)) * 2 - 1;
 }
@@ -185,7 +185,7 @@ function htmlEl(tag, className, text) {
 }
 
 /** @param {number} slot */
-function colorFor(slot) {
+export function colorFor(slot) {
   return slot < SERIES_SLOTS ? `var(--series-${slot + 1})` : 'var(--series-other)';
 }
 
@@ -194,7 +194,7 @@ function colorFor(slot) {
  * @param {number} slot
  * @param {number} r
  */
-function shapePath(slot, r) {
+export function shapePath(slot, r) {
   const shape = slot < SERIES_SLOTS ? SLOT_SHAPES[slot] : 'circle';
   switch (shape) {
     case 'square': {
@@ -678,7 +678,7 @@ export function drawScatter(container, input) {
  * @param {Mark[]} marks
  * @returns {Mean[]}
  */
-function computeMeans(marks) {
+export function computeMeans(marks) {
   /** @type {Map<number, {sum: number, n: number}>} */
   const acc = new Map();
   for (const m of marks) {

@@ -240,6 +240,19 @@ the same colour and shape on all three charts.
 
 ---
 
+## Running the tests
+
+Tests use [Vitest](https://vitest.dev) (Node 18 or newer) and live in `test/`, outside `src/` so they are not copied into the deployed site.
+
+```
+npm install
+npm test               # run once
+npm run test:watch     # re-run on change
+npm run test:coverage  # per-file coverage table (HTML report in coverage/)
+```
+
+Chart and `main.js` tests run in jsdom, and `server.js` is tested by starting it on a random port. The coverage table only measures `src/`. Not covered: the `parse:data` command-line entry point in `src/data.js`.
+
 ## Notes for the team
 
 - **Changing how files are read** (what counts as valid, how blanks are handled) happens in `src/data.js`.

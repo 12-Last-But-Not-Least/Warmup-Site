@@ -12,15 +12,29 @@ const TYPES = {
   '.ico': 'image/x-icon', '.csv': 'text/csv',
 };
 
-http.createServer((req, res) => {
-  const urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  const file = path.join(ROOT, urlPath === '/' ? 'index.html' : urlPath);
+function createServer() {
+  return http.createServer((req, res) => {
+    let urlPath;
+    try {
+      urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    } catch {
+      res.writeHead(400).end('Bad request'); // malformed %-escape
+      return;
+    }
+    const file = path.join(ROOT, urlPath === '/' ? 'index.html' : urlPath);
 
-  if (!file.startsWith(ROOT + path.sep)) { res.writeHead(403).end('Forbidden'); return; }
+    if (!file.startsWith(ROOT + path.sep)) { res.writeHead(403).end('Forbidden'); return; }
 
-  fs.readFile(file, (err, data) => {
-    if (err) { res.writeHead(404).end('Not found'); return; }
-    res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' });
-    res.end(data);
+    fs.readFile(file, (err, data) => {
+      if (err) { res.writeHead(404).end('Not found'); return; }
+      res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' });
+      res.end(data);
+    });
   });
-}).listen(PORT, () => console.log(`http://localhost:${PORT}`));
+}
+
+module.exports = { createServer };
+
+if (require.main === module) {
+  createServer().listen(PORT, () => console.log(`http://localhost:${PORT}`));
+}
